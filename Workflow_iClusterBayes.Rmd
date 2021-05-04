@@ -27,22 +27,23 @@ nocite: '@curatedTCGAData, @mancuratedTCGAData, @paqcuratedTCGAData, @readr @LaT
   * 1.1. _Preparación del entorno._
   * 1.2. _Carga de paquetes a utilizar._
 2. __Descarga de datos.__
-3. __Selección y filtrado de datos__
+3. __Selección de muestras__
   * 3.1. _Selección de muestras patológicas._
   * 3.2. _Selección de muestras que tengan datos pada las tres ómicas a integrar._
-  * 3.3. _Filtrado de muestras con x% de missing values en todas las ómicas._
-  * 3.4. _Filtrado de variables con un x% de missing values._
-4. __Imputación de missing values.__
-5. __Transformación de datos.__
-6. __Control de calidad.__
-7. __Normalización de datos.__
-8. __Control de calidad.__
-9. __Integración de datos.__
-10. __Visualización de resultados.__
-11. __Integración de redes.__
-12. __Análisis de prognosis.__
-113. __Modelo de Prognosis.__
-11. __Evaluación del modelo de prognosis.__
+4. __Filtrado de muestras__
+  * 4.1. _Filtrado de muestras con x% de missing values en todas las ómicas._
+  * 4.2. _Filtrado de variables con un x% de missing values._
+5. __Imputación de missing values.__
+6. __Transformación de datos.__
+7. __Control de calidad.__
+8. __Normalización de datos.__
+9. __Control de calidad.__
+10. __Integración de datos.__
+11. __Visualización de resultados.__
+12. __Integración de redes.__
+13. __Análisis de prognosis.__
+14. __Modelo de Prognosis.__
+15. __Evaluación del modelo de prognosis.__
 
 ## Preparación del entorno de trabajo:
 
@@ -66,10 +67,12 @@ Ahora vamos a cargar los paquetes que vamos a utilizar y que explicaremos según
 ```{r message=FALSE, warning=FALSE}
 library(curatedTCGAData)
 library(readr)
-
+library(TCGAutils)
 ```
 
 ## 2.Descarga de datos.
+
+### Descarga de 
 
 Para saber que archivos que queremos descargar será necesario ver que archivos hay disponibles para Adenocarcinoma de colon (*COAD*). Esto se realizará con la función `curatedTCGAData` del paquete con el mismo nombre$^{1,2,3}$. Para ello se definirán los atributos:
 
@@ -99,7 +102,35 @@ Los datos que se van a utilizar y que se han descargado son:
 
 *
 
-Se observó que hay menos datos de mRNAseq en disponibles en el paquete`curatedTCGAData` que en la web de Firehose, por tanto, se descargó manualmente el archivo y se guardó en el directorio de este papeline. Posteriormente se cargó usando la función `read_delim` del paquete `readr`. Como se encuentra en el mismo directorio del papeline no fue necesario indicar la ruta. Los atributos indicados fueron:
+Estos datos se han descargado en un objeto MultiAssayExperiment usado por algunas herramientas de integración como por ejemplo MOFA. Estos objetos permiten almacenar varios experimentos con distinto número de filas(variables). Su estructura es la siguiente:
+
+* `ExperimentList`: Es una lista que contiene los distintos experimentos(Assays) que se han descargado. Los datos de los experimentos, guardados en la lista, están almacenados en un data frames por experimento, donde las columnas son las muestras u observaciones, y las filas las variables medidas para cada expreimento. Em esta ÈxperimentList` se encuentra:
+
+```{r}
+datos_COAD@ExperimentList
+```
+
+* `colData`: contiene los datos clínicos de cada muestra, es un data frame con una fila por muestra y una columna por variable cínica. En este caso:
+
+```{r}
+datos_COAD@colData[1:5,1:5]
+```
+
+* `sampleMap`: Contiene una tabla con los códigos de referencia de las muestras que hay por cada experimento.
+
+```{r}
+ datos_COAD@sampleMap
+```
+
+https://bioconductor.org/packages/release/bioc/vignettes/MultiAssayExperiment/inst/doc/MultiAssayExperiment.html#a-brief-description
+http://bioconductor.org/packages/release/bioc/vignettes/MOFA/inst/doc/MOFA_example_scMT.html
+
+En iClusterBayes se usan data frames por lo que más adelante será necesario extraer los datos del objeto MultyAssayExperiment.
+
+https://bioconductor.org/packages/release/bioc/vignettes/iClusterPlus/inst/doc/iManual.pdf
+### Descarga de mRNAseq:
+
+Se observó que hay menos datos de mRNAseq en disponibles en el paquete `curatedTCGAData` que en la web de Firehose, por tanto, se descargó manualmente el archivo y se guardó en el directorio de este papeline. Posteriormente se cargó usando la función `read_delim` del paquete `readr`. Como se encuentra en el mismo directorio del papeline no fue necesario indicar la ruta. Los atributos indicados fueron:
 
 *`file`: nombre del documento o ruta. 
 *`delim`: tipo de separación entre los valores, en este caso, tab `\t`
@@ -111,68 +142,186 @@ datos_mRnaseq<-
 datos_mRnaseq[1:5,1:5]
 ```
 
-Como vemos hay varias columnas por cada muestra, lo que hace esencial que procesemos el data frame, para ello usaremos la función `select` del paquete `dplyr` que permite seleccionar las columnas que terminen en determinados caracteres mediante el atributo `ends_with` o bien no terminen en dichos caracteres si le añadimos un operador `!` delante.
+Como se puede ver hay varias variables por cada muestra, lo que hace esencial que se procese el data frame para quedarse solo con la columna de raw_counts de cada muestra y la columna "Hybridization REF" con las anotaciones de los genes_ID. Para elegir solo las columnas que queremos se usará la función `select` del paquete `dplyr` que permite seleccionar las columnas que terminen en determinados caracteres mediante el atributo `ends_with` o bien, seleccionar las que no terminen en determinados caracteres si se le añade un operador `!` delante de `ends_with`. Se seleccionaran aquellas columnas que no terminen en "_1" y "_2".
 
 https://www.rdocumentation.org/packages/dplyr/versions/0.7.8/topics/select
+
 ```{r}
 datos_mRnaseq<-dplyr::select(datos_mRnaseq, !ends_with("_1"))
 datos_mRnaseq<-dplyr::select(datos_mRnaseq, !ends_with("_2"))
 datos_mRnaseq[1:5, 1:5]
 ```
-..... Ahora será necesario eliminar la fila 1
+Una vez eliminadas las columnas que no se van a usar, será necesario eliminar la fila 1 para que al usar los datos dicha fila no genere errores.
 
 ```{r}
 datos_mRnaseq<-datos_mRnaseq[2:20532,1:329]
 datos_mRnaseq[1:5, 1:5]
 ```
 
-En este archivo vienen ya anotados los genes de los que se conoce el gen_ID como vamos a ver:
+En este archivo vienen ya mapeados los transcritos secuenciados con RNAseq, por lo que se tiene los row counts para cada gen. Además, en la primera columna está anotado el "Gene Symbol" o Símbolo oficial del gen y el "gen_ID" o identificador del gen de Entrez Gene, separados por el caracter "|".
+
+https://bioconductor.org/packages/release/data/annotation/manuals/org.Hs.eg.db/man/org.Hs.eg.db.pdf
 
 ```{r}
 datos_mRnaseq[28:32, 1:5]
 ```
 
-A continuación nos quedaremos solo con la expresión de aquellos genes que si tengan anotado el gen ID, para ello usaremos la función 
+Se ha observado en búsquedas en Gene de NCBI que hay genes en los que no está anotado el Gene Symbol, pero que desde que se hizo la versión de este archivo ya se han anotado, o bien otros han cambiado de Gene Symbol. Por ello, cuando se haya realizado la integración y se haya obtenido los genes que pueden ser posibles biomarcadores, se les eliminará los Gene Symbol y se volverá a realizar la anotación de los mismos a partir de los códigos Entrez_ID. Además, se ha observado que algunos códigos Entrez_ID están descatalogados y se les ha asignado un nuevo código Entrez_ID que habrá que anotar manualmente cada vez que en la anotación ocurra un error. Por esta razón se dejará este paso para más adelante, ya que solo se anotarán los genes diferencialmente expresados que sean importantes tras la integración.
 
+A continuación, se convertirá los gene_ID en los nombres de las filas y eliminaremos la primera columna de datos_mRnaseq, para que no de problemas en el resto de pasos de este análisis, ya que se tomaría la primera columna como una muestra con datos de counts. 
+
+Para guardar los datos de gene_ID como vector primero es necesario convertir la
+columna extraida del data frame en una matriz.
 ```{r}
-names<-as.vector(as.matrix(datos_mRnaseq[,1]))
-head(names)
-```
-https://r4ds.had.co.nz/strings.html#detect-matches
-https://www.rdocumentation.org/packages/stringr/versions/0.6.2/topics/fixed
-https://stackoverflow.com/questions/31585111/regular-expression-error-when-using-stringr-r-package-to-search-for-curly-brac
-
-
-```{r}
-names<-stringr::str_detect(names, stringr::fixed("?"))
+row_n<-as.vector(as.matrix(datos_mRnaseq[, 1]))
+head(row_n)
 ```
 
+Ahora se guarda datos_mRnaseq sin la primera columna.
 ```{r}
-names[1:5]
-names[28:32]
-table(factor(names))
+datos_mRnaseq<-datos_mRnaseq[,2:329]
+head(datos_mRnaseq)
 ```
 
-Vemos que se ha reconocido correctamente los genes sin gene_ID identificado, y ahora vamos a quedarnos con los 
+Finalmente, se da nombre a las filas, para ello primero se tiene que hacer es transformar datos_mRnaseq en un data frame normal, ya que de firehose se descarga en formato tibble, que es un tipo especial de data frame usado en ciencia de datos que no acepta que las filas tengan nombre, y que no es el usado por iClusterBayes.
+
+https://tibble.tidyverse.org/
+```{r}
+datos_mRnaseq<-as.data.frame(datos_mRnaseq)
+rownames(datos_mRnaseq)<-row_n
+datos_mRnaseq[1:5,1:5]
+```
+
+Para iClusterBayes será necesario trasponer este data frame, para que las muestras sean las filas y los genes las columnas, pero se realizará después de la normalización de datos.
+
+https://bioconductor.org/packages/release/bioc/vignettes/iClusterPlus/inst/doc/iManual.pdf
+
+## 3.Selección de muestras
+
+### 3.1.Selección de muestras patológicas.
+
+Para seleccionar las muestras patológicas vamos a usar dos métodos distintos según si los datos están en el objeto MultiAssayExperiment o en el data frame.
+
+* *Selección de muestras patológicas guardadas en el objeto MultiAssayExperiment(datos_COAD)*: 
+
+Se utilizará el paquete `TCGAutils` para hacer la selección. Lo primero que se realizará será ver los tipos de muestras que hay disponibles en TCGA y su código correspondiente dentro de los códigos de referencia. Para ello se descargará el data frame "sampleTypes" que contiene esta información disponible en el paquete. 
+
+https://bioconductor.org/packages/release/bioc/vignettes/TCGAutils/inst/doc/TCGAutils.html#mergecoldata-expanding-the-coldata-of-a-multiassayexperiment
 
 ```{r}
-datos_mRnaseq_pros<-data.frame()
-for (i in 1:length(names)){
-  if (names[i]==FALSE){
-    if(i==1){
-      datos_mRnaseq_pros<-datos_mRnaseq[i,]
-    }
-    if(i>1){
-      datos_mRnaseq_pros<-rbind(datos_mRnaseq_pros, datos_mRnaseq[i,])
+data("sampleTypes")
+sampleTypes
+```
+
+Ahora se verá los tipos de muestras que hay en el objeto "datos_COAD" por experimento, se usará la función `sampleTables` del mismo paquete.
+
+```{r}
+sampleTables(datos_COAD)
+```
+Como se ve la mayor parte de las muestras tiene el código "01" por lo que pertenecen al Tumor Primario. También hay alguna muestra de tumor recidivante "02" y de metastasico "06", pero no se van a incluir en el análisis porque, por un lado, no hay un número de muestras significativo de estos tipos, así que incluirlas solo añadiría impresición al análisis. Y por otro lado, estos tipos de muestras no aparecen en todas las ómicas.
+
+Además, como buscamos marcadores de prognosis descartaremos las muestras de tejido normal adyacente al tumor, "11".
+
+Para seleccionar las muestras "01" se usará la función `splitAssays` del paquete `TCGAutils`.
+
+```{r message=FALSE, warning=FALSE}
+datos_COAD_se<- splitAssays(datos_COAD, "01")
+```
+
+Se comprueba que se han guardado solo los "01":
+```{r}
+sampleTables(datos_COAD_se)
+```
+* *Selección de muestras patológicas guardadas en el data frame(datos_mRNAseq)*: 
+
+```{r}
+names<-as.vector(colnames(datos_mRnaseq))
+names<-stringr::str_sub(names, start =14 , end = 15)
+datos_mRnaseq[1:5, 7:10]
+names[7:10]
+```
+
+```{r}
+TP<-as.vector(names=="01")
+TP[6:10]
+table(TP)
+```
+
+```{r}
+selec_col<-function(data, boolean_vector){
+  db<-data.frame()
+  for (i in 1:length(boolean_vector)){
+    if (boolean_vector[i]==TRUE){
+      if(i==1){
+        db<-data[,i]
+      }
+      if(i>1){
+        db<-cbind(db, data[,i])
+      }
     }
   }
+  return(db)
 }
-datos_mRnaseq_pros[1:5, 1:5]
 ```
 
 ```{r}
-nrow(datos_mRnaseq_pros)
+datos_mRnaseq_se<-as.data.frame(selec_col(datos_mRnaseq, TP))
+datos_mRnaseq_se[1:5, 6:11]
 ```
+
+```{r}
+datos_mRnaseq[1:5, 6:11]
+```
+
+Ahora se seleccionarán los nombres de las columnas y se renombrarán las columnas y filas.
+
+```{r}
+selec_col_n<-function(data, boolean_vector){
+  v<-vector()
+  for (i in 1:length(boolean_vector)){
+    if (boolean_vector[i]==TRUE){
+      if(i==1){
+        v<-data[i]
+      }
+      if(i>1){
+        v<-c(v, data[i])
+      }
+    }
+  }
+  return(v)
+}
+```
+
+```{r}
+col_n<-selec_col_n(as.vector(colnames(datos_mRnaseq)),TP )
+col_n[6:9]
+```
+
+```{r}
+datos_mRnaseq[1:5, 6:11]
+```
+
+Finalmente damos nombre a las filas y columnas:
+
+```{r}
+colnames(datos_mRnaseq_se)<-col_n
+rownames(datos_mRnaseq_se)<-rownames(datos_mRnaseq)
+datos_mRnaseq_se[6:9]
+```
+
+
+### 3.2. Selección de muestras que tengan datos pada las tres ómicas a integrar.
+
+## 4.Filtrado de muestras
+
+### 4.1. _Filtrado de muestras con x% de missing values en todas las ómicas._
+### 4.2. _Filtrado de variables con un x% de missing values._
+
+
+
+
+
+
 
 ## Bibliografía:
 
