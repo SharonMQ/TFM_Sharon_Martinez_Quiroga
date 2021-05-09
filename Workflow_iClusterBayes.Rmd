@@ -3,8 +3,10 @@ title: "Trabajo de Fin de Máster: Workflow 1 con iClusterBayes como método de 
 date: "1/5/2021"
 output: pdf_document
 bibliography: Workflow1.bib
-nocite: '@curatedTCGAData, @mancuratedTCGAData, @paqcuratedTCGAData, @readr @LaTexMathematics, @RstudioUnusedReferences, @citarbib' 
+csl: springer-vancouver-brackets.csl
 ---
+
+
 
 **_Máster en Bioinformática y Bioestadística_** 
 
@@ -30,6 +32,7 @@ nocite: '@curatedTCGAData, @mancuratedTCGAData, @paqcuratedTCGAData, @readr @LaT
 3. __Selección de muestras__
   * 3.1. _Selección de muestras patológicas._
   * 3.2. _Selección de muestras que tengan datos pada las tres ómicas a integrar._
+  * 3.3. _Selección de muestras con seguimiento mayor de 30 días._
 4. __Filtrado de muestras__
   * 4.1. _Filtrado de muestras con x% de missing values en todas las ómicas._
   * 4.2. _Filtrado de variables con un x% de missing values._
@@ -57,7 +60,7 @@ knitr::opts_chunk$set(echo = TRUE, comment = NULL, cache = TRUE)
 
 Ahora definimos nuestro directorio:
 ```{r}
-setwd("/media/home/ESD-USB/UOC/6to cuatrimestre/TFM/Workflows/Wirkflow iClusterBayes")
+setwd("/media/home/ESD-USB/UOC/6to cuatrimestre/TFM/Workflows/Workflow iClusterBayes")
 ```
 
 ### 1.2. Carga de paquetes a utilizar.
@@ -68,19 +71,20 @@ Ahora vamos a cargar los paquetes que vamos a utilizar y que explicaremos según
 library(curatedTCGAData)
 library(readr)
 library(TCGAutils)
+library(MultiAssayExperiment)
 ```
 
 ## 2.Descarga de datos.
 
-### Descarga de 
+### Descarga de datos de CNA y Metilación de DNA:
 
-Para saber que archivos que queremos descargar será necesario ver que archivos hay disponibles para Adenocarcinoma de colon (*COAD*). Esto se realizará con la función `curatedTCGAData` del paquete con el mismo nombre$^{1,2,3}$. Para ello se definirán los atributos:
+Para saber que archivos que queremos descargar será necesario ver que archivos hay disponibles para Adenocarcinoma de colon (*COAD*). Esto se realizará con la función `curatedTCGAData` del paquete con el mismo nombre [@curatedTCGAData; @mancuratedTCGAData; @paqcuratedTCGAData]. Para ello se definirán los atributos:
 
 * _`diseaseCode`_: código de la enfermedad de estudio, en este caso COAD.
 * _`assays`_: tipos de datos de los que se quiere información. Se indicará "*" para ver todos los datos disponibles.
 * _`dry.run`_: Se indicará TRUE porque solo queremos visualizar un resumen de los datos. Si se indicara FALSE se descargarían los paquetes indicados.$^{1,2}$
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 curatedTCGAData(diseaseCode = "COAD", assays = "*", dry.run = TRUE)
 ```
 
@@ -94,13 +98,17 @@ Solo se descargargarán los archivos "GISTIC_AllByGene", "Methylation_methyl450"
 
 ```{r message=FALSE, warning=FALSE}
 datos_COAD<-curatedTCGAData::curatedTCGAData(diseaseCode = "COAD", 
-assays = c("GISTIC_AllByGene", "Methylation_methyl450", "miRNASeqGene", "RPPAArray"),
+assays = c("GISTIC_AllByGene", "Methylation_methyl450"),
 dry.run = FALSE)
 ```
 
 Los datos que se van a utilizar y que se han descargado son:
 
-*
+* GISTIC_AllByGene: Esta base de datos contiene los CNA por gen en scores. Para obtener los scores, GISTIC primero calcula las unidades de CNA-2 por CNA medido(marker level), 2 porque el ser humano tiene mínimo dos copias de cada gen o región, una por alelo o cromosoma homólogo. Como tenemos valores de CNA, el marker level nunca podrá tener valor 0, es decir, siempre habrá amplificación o deleción de copias. Los números positivos indican amplificación y los negativos deleción. A partir de estos valores GISTIC obtiene los scores que miden el nivel de CNAs por gen (gene level). El método que usa para obtener los scores se denomina método extremo, porque el score es el mayor marker level de cada gen para cada muestra, es decir, elige de entre las unidades de CNA-2, calculadas antes, el CNA que de entre todos los CNA presentes en dicho gen, tenga mayor amplificación, o bien, el menor valor de deleción. 
+
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5302158/
+
+* Methylation_methyl450: Contiene los row counts para cada probe del array 
 
 Estos datos se han descargado en un objeto MultiAssayExperiment usado por algunas herramientas de integración como por ejemplo MOFA. Estos objetos permiten almacenar varios experimentos con distinto número de filas(variables). Su estructura es la siguiente:
 
@@ -132,8 +140,8 @@ https://bioconductor.org/packages/release/bioc/vignettes/iClusterPlus/inst/doc/i
 
 Se observó que hay menos datos de mRNAseq en disponibles en el paquete `curatedTCGAData` que en la web de Firehose, por tanto, se descargó manualmente el archivo y se guardó en el directorio de este papeline. Posteriormente se cargó usando la función `read_delim` del paquete `readr`. Como se encuentra en el mismo directorio del papeline no fue necesario indicar la ruta. Los atributos indicados fueron:
 
-*`file`: nombre del documento o ruta. 
-*`delim`: tipo de separación entre los valores, en este caso, tab `\t`
+* `file`: nombre del documento o ruta. 
+* `delim`: tipo de separación entre los valores, en este caso, tab `\t`
 
 ```{r message=FALSE, warning=FALSE}
 datos_mRnaseq<- 
@@ -180,7 +188,7 @@ head(row_n)
 Ahora se guarda datos_mRnaseq sin la primera columna.
 ```{r}
 datos_mRnaseq<-datos_mRnaseq[,2:329]
-head(datos_mRnaseq)
+datos_mRnaseq[1:5,1:2]
 ```
 
 Finalmente, se da nombre a las filas, para ello primero se tiene que hacer es transformar datos_mRnaseq en un data frame normal, ya que de firehose se descarga en formato tibble, que es un tipo especial de data frame usado en ciencia de datos que no acepta que las filas tengan nombre, y que no es el usado por iClusterBayes.
@@ -189,7 +197,7 @@ https://tibble.tidyverse.org/
 ```{r}
 datos_mRnaseq<-as.data.frame(datos_mRnaseq)
 rownames(datos_mRnaseq)<-row_n
-datos_mRnaseq[1:5,1:5]
+datos_mRnaseq[1:5,1:2]
 ```
 
 Para iClusterBayes será necesario trasponer este data frame, para que las muestras sean las filas y los genes las columnas, pero se realizará después de la normalización de datos.
@@ -234,29 +242,50 @@ sampleTables(datos_COAD_se)
 ```
 * *Selección de muestras patológicas guardadas en el data frame(datos_mRNAseq)*: 
 
+Para obtener las muestras patológicas lo primero que se debe hacer es guardar en un vector "names" los códigos de referencia, y posteriormente extraer de cada código el fragmento que nos indica el tipo de muestra. Para ello se usa la función `str_sub` del paquete `stringr`, y se indica que los caracteres que nos interesan empiezan en la posición 14 y terminan en la 15, por tanto, son los dos caracteres de la región "Sample" del código de referencia. 
+
 ```{r}
 names<-as.vector(colnames(datos_mRnaseq))
 names<-stringr::str_sub(names, start =14 , end = 15)
-datos_mRnaseq[1:5, 7:10]
 names[7:10]
 ```
 
+Se observa, en las muestras de las posiciones 7-10 del vector, que hemos extraido las regiones de interes, se eligieron estas posiciones porque se ven dos posibles códigos.
+
+```{r}
+datos_mRnaseq[1:5, 7:10]
+```
+
+Se comprueba que los códigos extraidos son los que se desea. Ver _Anexo: Código TCGA_ de la memoria. 
+
+A continuación creamos un vector "TP" en el que se guarda TRUE cada vez que en "names" aparece un código "01" o Tumor Primario.
 ```{r}
 TP<-as.vector(names=="01")
-TP[6:10]
+TP[7:11]
 table(TP)
 ```
+
+Se observa que la mayoría de los datos son de Tumor Primario.
+
+A continuación, se crea una función `selec_col` en la que se recorre la posición "i" de cada elemento del vector "boolean_vector". En dicho vector aparece TRUE cada vez que en esa posición hay una de las muestras que queremos. Todas las muestras se han extraido del data frame "data" en ese orden. Finalmente, cada vez que hay un TRUE se añadirá la columna del data frame original "data" que esté en la misma posición a un nuevo data frame, obteniendo como resultado de la función un data frame con las muestras deseadas.
 
 ```{r}
 selec_col<-function(data, boolean_vector){
   db<-data.frame()
+  p<-0
   for (i in 1:length(boolean_vector)){
     if (boolean_vector[i]==TRUE){
       if(i==1){
         db<-data[,i]
       }
       if(i>1){
-        db<-cbind(db, data[,i])
+        if(p==1){
+          db<-cbind(db, data[,i])
+        }
+        if(p==0){
+          db<-data[,i]
+          p<-1
+        }
       }
     }
   }
@@ -264,41 +293,59 @@ selec_col<-function(data, boolean_vector){
 }
 ```
 
+Se usa la función `selec_col` definiendo:
+
+* `data`: datos_mRnaseq.
+* `boolean_vector`: TP.
+
+Y se comprueba los resultados:
 ```{r}
 datos_mRnaseq_se<-as.data.frame(selec_col(datos_mRnaseq, TP))
-datos_mRnaseq_se[1:5, 6:11]
+datos_mRnaseq_se[1:5, 7:11]
+```
+Se comprueba que los datos coinciden con los de las muestras con "01" en la cuarta región del código.
+```{r}
+datos_mRnaseq[1:5, 7:11]
 ```
 
-```{r}
-datos_mRnaseq[1:5, 6:11]
-```
-
-Ahora se seleccionarán los nombres de las columnas y se renombrarán las columnas y filas.
+Ahora se seleccionarán los nombres de las columnas y se renombrarán las columnas y filas. Se crea una función igual que la anterior, llamada `selec_col_n`, pero que en vez de introducirle un data frame con las columnas a seleccionar, se le introduce un vector con los elementos a guardar `col_n_data`. Se guardarán los elementos de `col_n_data` que aparezcan en las posiciones TRUE del `boolean_vector`. El resultado será un vector con los nombres de las muestras con tumor primario seleccionadas.
 
 ```{r}
-selec_col_n<-function(data, boolean_vector){
+selec_col_n<-function(col_n_data, boolean_vector){
   v<-vector()
+  p<-0
   for (i in 1:length(boolean_vector)){
     if (boolean_vector[i]==TRUE){
       if(i==1){
-        v<-data[i]
+        v<-col_n_data[i]
       }
       if(i>1){
-        v<-c(v, data[i])
+        if(p==1){
+          v<-c(v, col_n_data[i])
+        }
+        if(p==0){
+          v<-col_n_data[i]
+          p<-1
+        }
       }
     }
   }
   return(v)
 }
 ```
+Se usa la función `selec_col` definiendo:
+
+* `col_n_data`:colnames(datos_mRnaseq) .
+* `boolean_vector`: TP.
 
 ```{r}
 col_n<-selec_col_n(as.vector(colnames(datos_mRnaseq)),TP )
-col_n[6:9]
+col_n[7:11]
 ```
 
+Y se comprueba los resultados viendo que se han eliminado los "11":
 ```{r}
-datos_mRnaseq[1:5, 6:11]
+colnames(datos_mRnaseq[7:12])
 ```
 
 Finalmente damos nombre a las filas y columnas:
@@ -306,13 +353,232 @@ Finalmente damos nombre a las filas y columnas:
 ```{r}
 colnames(datos_mRnaseq_se)<-col_n
 rownames(datos_mRnaseq_se)<-rownames(datos_mRnaseq)
-datos_mRnaseq_se[6:9]
+datos_mRnaseq_se[1:5,6:9]
 ```
 
 
-### 3.2. Selección de muestras que tengan datos pada las tres ómicas a integrar.
+### 3.2. Selección de muestras que tengan datos para las tres ómicas a integrar.
+
+* *Muestras con datos de CNA y Metilación de DNA:*
+Ahora se seleccionarán aquellas observaciones que tengan datos en todas las ómicas. Lo primero es ver las observaciones que tienen datos de CNA y Metilación, ya que se encuentran en un objeto MultiAssayExperiment, y existe una función `MatchedAssayExperiment` del paquete `MultiAssayExperiment` que selecciona las observaciones presentes en todos los assays del objeto. 
+
+```{r message=FALSE, warning=FALSE}
+datos_COAD_se<-MatchedAssayExperiment(datos_COAD_se)
+datos_COAD_se@ExperimentList@listData
+```
+
+Como se observa, hay el mismo número de columnas en ambos assays, en CNA = `r ncol(datos_COAD_se@ExperimentList@listData$'01_COAD_GISTIC_AllByGene-20160128')` y en Met=`r `ncol(datos_COAD_se@ExperimentList@listData$'01_COAD_Methylation_methyl450-20160128')`
+
+Más adelante se utilizarán estos datos como data frame, por lo que se va a proceder a guardar los datos del objeto MultiAssayExperiment en un directorio llamado "datos". Para ello se usará la función `exportClass` del paquete `MultiAssayExperiment`.
+
+https://bioconductor.org/packages/devel/bioc/vignettes/MultiAssayExperiment/inst/doc/QuickStartMultiAssay.html
+
+```{r}
+dir.create("Datos")
+exportClass(datos_COAD_se, dir = "Datos", fmt = "csv", ext = ".csv")
+```
+
+Ahora se cargarán los data frames guardados para poder usarlos en los pasos siguientes.
+
+Lo primero que se hará será cargar los datos de CNA y de Metilación siguiendo el mismo proceso. Para ello primero se cargará el archivo.csv con la función `read_csv` del paquete `readr`. Como se cargan en formato tribble se convertirán a data frame con `as.data.frame`. La primera columna son los nombres de las filas, genes, por lo que se da los valores de la primera columna a las filas con la función `rownames`, y a continuación se elimina la primera columna.
+```{r message=FALSE, warning=FALSE}
+datos_CNA<-as.data.frame(read_csv("Datos/datos_COAD_se_01_COAD_GISTIC_AllByGene-20160128.csv"))
+rownames(datos_CNA)<-datos_CNA$X1
+datos_CNA<-datos_CNA[, -1]
+datos_CNA[1:5, 1:2]
+```
+
+A continuación se acortarán los nombres de las muestras, dejando solo la parte del código común a todas las muestras de un mismo participante, inclusive se eliminará el 01 de tumor primario. Esto se hará con la función `str_sub` del paquete `stringr`.
+
+```{r message=FALSE, warning=FALSE}
+temp<-colnames(datos_CNA)
+colnames(datos_CNA)<-stringr::str_sub(temp, start=1, end=12)
+datos_CNA[1:5, 1:2]
+```
+
+Se comprueba que los códigos y sus datos coinciden, y por tanto se ha realizado correctamente el cambio de nombre de las columnas.
+
+Se repite todo el proceso con los datos de metilación:
+```{r message=FALSE, warning=FALSE}
+datos_Met<-as.data.frame(read_csv("Datos/datos_COAD_se_01_COAD_Methylation_methyl450-20160128.csv"))
+rownames(datos_Met)<-datos_Met$X1
+datos_Met<-datos_Met[, -1]
+datos_Met[1:5, 1:2]
+```
+
+Se renombra las muestras:
+```{r message=FALSE, warning=FALSE}
+temp<-colnames(datos_Met)
+colnames(datos_Met)<-stringr::str_sub(temp, start=1, end=12)
+datos_Met[1:5, 1:2]
+```
+
+Finalmente se cargan los datos clínicos. Se define los nombres de las filas como los códigos de referencia por paciente, patientID, que es la segunda columna que aparece, y que es idéntica a la primera. Por esta razón, despues de dar nombre a las filas se eliminan las dos primeras columnas.
+
+```{r message=FALSE, warning=FALSE}
+datos_clinicos<-as.data.frame(read_csv("Datos/datos_COAD_se_colData.csv"))
+rownames(datos_clinicos)<-datos_clinicos$patientID
+datos_clinicos<-datos_clinicos[, 3:2616]
+datos_clinicos[1:5, 1:5]
+```
+
+* *Muestras con datos de CNA, Metilación de DNA y mRNA:*
+
+__A continuación, se selecciona los datos de mRNAseq que haya para estas muestras con CNA y Metilación, y al final se eliminará las muestras de CNA y Met para las que no haya datos de mRNAseq.__
+
+__La primera parte es seleccionar las muestras de mRNAseq que tienen datos de CNA y de Metilación__, para ello se va a juntar en el mismo vector los códigos de las muestras de mRNA y los de las muestras en CNA, posteriormente se factorizará el vector, y se elaborará una tabla con la frecuencia de los niveles(muestras). Se seleccionará aquellos niveles que tengan una frecuencia de 2 (1 por mRNAseq y 1 por CNA). No se une también las muestras de Met porque coinciden con las de CNA, añadirlos sería un paso innecesario.
+
+Para hacer este proceso es necesario que coincidan los nombres de las muestras, así que se debe acortar los códigos de referencia de los datos de mRNAseq, al igual que se hizo con los demás  sets de datos. Primero se mostrará el data frame inicial para poder posteriormente comprobar que el cambio se realizó sin generar errores.
+```{r}
+datos_mRnaseq_se[1:5,1:3]
+```
+
+A continuación renombramos las muestras y comprobamos, comparando con el resultado anterior, que se han renombrado las muestras sin generar errores en la correspondencia datos y código.
+```{r}
+temp<-colnames(datos_mRnaseq_se)
+colnames(datos_mRnaseq_se)<-stringr::str_sub(temp, start=1, end=12)
+datos_mRnaseq_se[1:5,1:3]
+```
+
+PAra ver que muestras están en las tres ómicas se guarda en el mismo vector el nombre de las muestras de CNA y Met, y los nombres de mRNAseq.
+
+```{r}
+muestras<-c(colnames(datos_CNA), colnames(datos_mRnaseq_se))
+length(muestras)==length(colnames(datos_CNA))+length(colnames(datos_mRnaseq_se))
+```
+
+Observamos que se han guardado todos los códigos de las ómicas a estudiar(recordemos que se omitió Met para evitar redundancia), ya que el vector de los códigos conjuntos es igual a la suma de los códigos de cada ómica. 
+```{r}
+muestras_se<-as.data.frame(table(factor(muestras)))
+head(muestras_se)
+```
+A continuación se selecciona aquellas muestras que aparezcan 2 veces, y como hay una por fila del data frame, contamos cuantas muestras están en datos CNA y mRNAseq mediante `nrow`. 
+```{r}
+muestras_se<-muestras_se[muestras_se$Freq==2,]
+nrow(muestras_se)
+head(muestras_se)
+```
+A continuación se define una función, `selec_omicas` que recorre cada código de cada muestra de la base de datos original, datos_mRnaseq_se, y los compara con cada código de aquellas muestras que se quiere seleccionar, que son las de frecuencia 2. Por cada muestra de la base de datos original se guardará un boolean en un vector que se ha denominado `TP`. El boolean sera TRUE si la muestra de esa posición coincide con alguna de las muestras deseadas, y será FALSE si no hay ninguna coincidencia.
+
+```{r}
+
+selec_omicas<-function(datos, datos_selec){
+  boolean_vector<-vector()
+  for (i in 1:length(datos)){
+    t<-0
+    for(j in 1:length(datos_selec)){
+      if (datos[i]==datos_selec[j]){
+        t<-1
+      }
+    }
+    if (t==1){
+       boolean_vector<-c(boolean_vector, TRUE)
+    }
+    if (t==0){
+       boolean_vector<-c(boolean_vector, FALSE)
+    }
+  }
+  return(boolean_vector)
+}
+
+```
+
+A continuación se llama a la función definiendo:
+
+*`data`: códigos de las muestras en datos_mRnaseq_se, es decir, nombre de las columnas.
+
+*`datos_selec`: códigos de las muestras presentes en datos_mRnaseq_se y datos_CNA.
+
+```{r}
+names<-colnames(datos_mRnaseq_se)
+temp<-as.vector(muestras_se$Var1)
+muestras_mRNA<-selec_omicas(names, temp)
+head(muestras_mRNA)
+```
+Se genera un vector de booleans que indica en cada posición si la correspondiente columna en datos_mRnaseq_se está también presente en datos_CNA. A continuación, se llama a las funciones `selec_col` y `selec_col_n` para seleccionar las columnas de datos_mRnaseq_se que tengan un TRUE en el vector de booleans generado con la función `selec_omicas` guardado bajo el nombre "muestras mRNA". 
+
+```{r}
+datos_mRnaseq_def<-as.data.frame(selec_col(datos_mRnaseq_se, muestras_mRNA))
+colnames(datos_mRnaseq_def)<-selec_col_n(colnames(datos_mRnaseq_se), muestras_mRNA)
+row.names(datos_mRnaseq_def)<-row.names(datos_mRnaseq_se)
+ncol(datos_mRnaseq_def)==nrow(muestras_se)
+```
+
+Se ve el data frame de datos mRNA:
+```{r}
+datos_mRnaseq_def[1:5,1:2]
+```
+
+Se observa que el resultado final es un data frame con datos de mRNAseq con el mismo número de columnas, muestras, que el número de filas, muestras, cuyo código estaba en datos_mRNAseq_se y en datos_CNA.
+
+__La segunda parte de este proceso consiste en eliminar de los data frames de CNA y Met las muestras que no tengan datos de mRNA.__ Para ello primero obtendremos, con la función `selec_omicas`, un vector de booleans que indique que muestras del data frame "datos_CNA" o bien "datos_Met", también están en el data frame "datos_mRnaseq_def". Habrá un TRUE en cada posición de "datos_CNA" o "datos_Met" en la que ocurra una coincidencia con alguna muestra de datos_mRNAseq_def. Después, con la función `selec_col` se guardará aquellas columnas de "datos_CNA" o "datos_Met" de muestras que tengan un TRUE en el vector de booleans. Finalmente dará el nombre de cada muestra a cada columna del nuevo data frame con la función `selec_col_n`. 
+
+  * Para CNA:
+```{r}
+names<-colnames(datos_CNA)
+temp<-colnames(datos_mRnaseq_def)
+muestras_CNA<-selec_omicas(names, temp)
+head(muestras_CNA)
+```
+
+```{r}
+datos_CNA_def<-as.data.frame(selec_col(datos_CNA, muestras_CNA))
+colnames(datos_CNA_def)<-selec_col_n(colnames(datos_CNA), muestras_CNA)
+row.names(datos_CNA_def)<-row.names(datos_CNA)
+datos_CNA_def[1:5,1:2]
+```
+
+* Para Metilación:
+
+```{r}
+names<-colnames(datos_Met)
+temp<-colnames(datos_mRnaseq_def)
+muestras_Met<-selec_omicas(names, temp)
+head(muestras_Met)
+```
+
+```{r}
+datos_Met_def<-as.data.frame(selec_col(datos_Met, muestras_Met))
+colnames(datos_Met_def)<-selec_col_n(colnames(datos_Met), muestras_Met)
+row.names(datos_Met_def)<-row.names(datos_Met)
+datos_Met_def[1:5,1:2]
+```
+
+
+Finalmente se hace con los datos clínicos:
+
+```{r}
+datos_clinicos<-t(datos_clinicos)
+names<-colnames(datos_clinicos)
+temp<-colnames(datos_mRnaseq_def)
+muestras_clinicas<-selec_omicas(names, temp)
+head(muestras_clinicas)
+```
+
+```{r}
+datos_clinicos_def<-as.data.frame(selec_col(datos_clinicos, muestras_clinicas))
+colnames(datos_clinicos_def)<-selec_col_n(colnames(datos_clinicos), muestras_clinicas)
+row.names(datos_clinicos_def)<-row.names(datos_clinicos)
+datos_clinicos_def<-as.data.frame(t(datos_clinicos_def))
+datos_clinicos_def[1:5,1:5]
+```
+
+### 3.3. _Selección de muestras con seguimiento mayor de 30 días._
+
+Como hay tantas variables clínicas medidas, se va ver la selección de variables que hace TCGA como las más importantes. Para ello se usa la función `getClinicalNames` del paquete `curatedTGGAData` i se indica "COAD". 
+
+```{r}
+clinicalNames<-getClinicalNames("COAD")
+```
+
+
+
 
 ## 4.Filtrado de muestras
+
+
+
+
 
 ### 4.1. _Filtrado de muestras con x% de missing values en todas las ómicas._
 ### 4.2. _Filtrado de variables con un x% de missing values._
@@ -323,5 +589,5 @@ datos_mRnaseq_se[6:9]
 
 
 
-## Bibliografía:
+
 
