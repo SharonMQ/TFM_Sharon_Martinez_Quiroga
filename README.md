@@ -1,2 +1,2 @@
 # TFM_Sharon_Martinez_Quiroga
-Este repositorio almacenará el código utilizado en el Trabajo de Fin de Master de Sharon Martínez Quiroga sobre Integración de datos multi-ómicos de Adenocarcinoma de cólon. 
+Este repositorio almacena el código utilizado en el Trabajo de Fin de Máster de Sharon Martínez Quiroga sobre integración de datos multi-ómicos con el título "Detección de posibles biomarcadores de prognosis en Adenocarcinoma de Colon mediante la integración de datos ómicos con varios métodos disponibles." 
