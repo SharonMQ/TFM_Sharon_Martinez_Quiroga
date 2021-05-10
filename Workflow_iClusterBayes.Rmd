@@ -6,8 +6,6 @@ bibliography: Workflow1.bib
 csl: springer-vancouver-brackets.csl
 ---
 
-
-
 **_Máster en Bioinformática y Bioestadística_** 
 
 **Área del trabajo:_2_**
@@ -32,10 +30,10 @@ csl: springer-vancouver-brackets.csl
 3. __Selección de muestras__
   * 3.1. _Selección de muestras patológicas._
   * 3.2. _Selección de muestras que tengan datos pada las tres ómicas a integrar._
-  * 3.3. _Selección de muestras con seguimiento mayor de 30 días._
+  * 3.3. _Selección de variables clínicas para el análisis de supervivencia._
 4. __Filtrado de muestras__
-  * 4.1. _Filtrado de muestras con x% de missing values en todas las ómicas._
-  * 4.2. _Filtrado de variables con un x% de missing values._
+  * 4.1. _Filtrado de muestras con determinado porcentaje de missing values en todas las ómicas._
+  * 4.2. _Filtrado de variables con determinado porcentaje de missing values en todas las ómicas._
 5. __Imputación de missing values.__
 6. __Transformación de datos.__
 7. __Control de calidad.__
@@ -72,6 +70,7 @@ library(curatedTCGAData)
 library(readr)
 library(TCGAutils)
 library(MultiAssayExperiment)
+library(dplyr)
 ```
 
 ## 2.Descarga de datos.
@@ -562,32 +561,343 @@ row.names(datos_clinicos_def)<-row.names(datos_clinicos)
 datos_clinicos_def<-as.data.frame(t(datos_clinicos_def))
 datos_clinicos_def[1:5,1:5]
 ```
+```{r}
+nrow(datos_clinicos_def)
+```
 
-### 3.3. _Selección de muestras con seguimiento mayor de 30 días._
+Se observa que se han seleccionado las muestras correctas ya que se tiene el mismo número de muestras que en las ómicas.
 
-Como hay tantas variables clínicas medidas, se va ver la selección de variables que hace TCGA como las más importantes. Para ello se usa la función `getClinicalNames` del paquete `curatedTGGAData` i se indica "COAD". 
+### 3.3. _Selección de variables clínicas para el análisis de supervivencia._
+
+Como hay tantas variables clínicas medidas, se va ver la selección de variables que hace TCGA como las más usadas. Para ello se usa la función `getClinicalNames` del paquete `curatedTGGAData` i se indica "COAD". 
 
 ```{r}
 clinicalNames<-getClinicalNames("COAD")
+clinicalNames
+```
+
+Si se el echa un vistazo al data frame "datos_clinicos_def" se ve que son las 18 primeras variables, columnas, por lo que eliminaremos las demás del data frame:
+
+```{r}
+datos_clinicos_def<-datos_clinicos_def[, 1:18]
+datos_clinicos_def[1:2, ]
+```
+
+Como hay variables de las más usadas que no se van a usar en este estudio, se van a guardar solo aquellas que se va a usar en el análisis de supervivencia:
+
+```{r}
+datos_clinicos_def<-as.data.frame(cbind(datos_clinicos_def[, 1:6], datos_clinicos_def$gender.x, datos_clinicos_def[, 13:18]))
+colnames(datos_clinicos_def)<-c("age","vital_status","days_to_death","days_to_last_follow_up","tumor_tissue_site","pathologic_stage", "gender", "radiation_therapy", "histological_type", "residual_tumor", "number_of_lymph_nodes", "race", "ethnicity")
+```
+
+Ahora se podrían seleccionar, para el análisis de supervivencia, las muestras de participantes que han muerto o que el último seguimiento fuera de más de 30 días desde el diagnóstico. [] Sin embargo, se realizará después del subtipado con iClusterBayes, eliminando las muestras que no cumplan dichos requisitos, ya que el problema de estas muestras es a nivel de datos clínicos no moleculares, por lo que incluirlas en el subtipado nos permitirá disponer de más datos para obtener mejores resultados. 
+
+https://bmcmedgenomics.biomedcentral.com/articles/10.1186/s12920-021-00876-4
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6949097/
+
+
+## 4.Filtrado de missing values:
+
+En este papeline el filtrado solo consistirá en eliminar las muestras o variables con más de un % de missing values, ya que no son manejados por iClusterBayes. En el siguiente apartado se imputarán los missing values que no se hayan eliminado.[]
+
+https://rdrr.io/bioc/iClusterPlus/src/R/iCluster.R
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6949097/
+
+### 4.1. _Filtrado de muestras con determinado porcentaje de missing values en todas las ómicas._
+
+Se filtrará aquellas muestras que tengan más de un determinado porcentaje de missing values, y aquellas con menos de dicho porcentage se imputarán en el apartado 5 de este informe. El porcentaje de missing values no tolerado se decidirá viendo los porcentajes de todas las muestras, de forma que no se eliminen de más.
+
+https://bmcmedgenomics.biomedcentral.com/articles/10.1186/s12920-021-00876-4
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6949097/
+
+Lo primero que se hará será crear una función `missing_values` que calcule el porcentaje de missing values por cada columna o fila. La función creada llamará a la función `apply` que aplica por fila o columna de la matriz el cálculo que se le indique. `apply` tiene tres atributos:
+
+* x: matriz sobre la que realizarán los cálculos.
+* Margin: si `apply` se ejecuta por fila se le indica un "1" y si es por columna se indica un "2".
+* FUN: a `apply` hay que darle una función o un cálculo para que ejecute. 
+
+En la función `missing_values` se llamará a `apply` a la vez que se convierte en matriz, con `as.matrix`, la base de datos de la que se quiere obtener los porcentajes de missing values. La función que aplicará `apply` sumará con `sum` todos los _NA_ de la fila o columna, a los que reconocerá con la función `is.na`. Como `is.na` debe tener un vector, "y" sobre el que ejecutarse, se debe definir una función interna en la que "y" será la fila o columna sobre la que se está ejecutando `apply`.  Una vez que la función sume los _NA_ calculará el porcentaje multiplicando por 100 y dividiendo por el número de columnas o filas dependiendo del caso. Los atributos a indicar a `missing_values` serán:
+
+* `data`: data frame a partir de la cual se realizarán los cálculos.
+* `dimention`: 1 si el porcentaje de missing values es por fila, variable. 2 si el porcentaje de missing values es por columna, muestra.
+* `total`: si `dimention=1` se indicará `ncol(data)`, es decir, el número de columnas, muestras, para las que se ha medido dicha variable. si `dimention=2` se indicará `nrow(data)`, es decir, el número de filas, variables, que se han medido para dicha muestra.
+
+https://stackoverflow.com/questions/24027605/determine-the-number-of-na-values-in-a-column
+https://www.rdocumentation.org/packages/base/versions/3.6.2/topics/apply
+https://www.rdocumentation.org/packages/ursa/versions/3.9.2/topics/is.na
+
+```{r}
+missing_values<-function(data, dimention, total){
+  db<-apply(as.matrix(data), dimention, function(y) sum(is.na(y))*100/total)
+}
+```
+
+* *Metilación de DNA:*
+
+Para probar la función se va a usar los datos de Metilación ya que son los únicos que tienen valores NA de los sets de datos ómicos que se van a usar. 
+
+```{r}
+tabla_mv_Met_M<-data.frame(missing_values(datos_Met_def, 2, nrow(datos_Met_def)))
+colnames(tabla_mv_Met_M)<-"porcentaje"
+head(tabla_mv_Met_M)
+```
+
+Para comprobar que funciona se calculará manualmente el porcentaje de _NA_ de las 4 primeras muestras por dos métodos:
+
+* Muestra `r colnames(datos_Met_def[1])`:
+```{r}
+#Método con la función missing_values:
+tabla_mv_Met_M[1,]
+#Método 1:
+#Aplicación manual de la función utilizada por apply.
+sum(is.na(datos_Met_def[,1]))*100/nrow(datos_Met_def)  
+#Método 2:
+#Se obtiene la columna y se guarda en un vector "a", se le omiten los NA,
+#posteriormente se resta el nuevo número de elementos de "a" al total de 
+#valores que tenía a antes, que se corresponden con nrow(datos_Met_def). 
+#A continuación se calcula el porcentaje correspondiente al número de NA 
+#contados.
+a<-datos_Met_def[,1]
+a<-na.omit(a)
+(nrow(datos_Met_def)-length(a))*100/nrow(datos_Met_def)
+```
+
+* Muestra `r colnames(datos_Met_def[2])`:
+```{r}
+#Método con la función missing_values:
+tabla_mv_Met_M[2,]
+#Método 1:
+sum(is.na(datos_Met_def[,2]))*100/nrow(datos_Met_def)
+#Método 2:
+a<-datos_Met_def[,2]
+a<-na.omit(a)
+(nrow(datos_Met_def)-length(a))*100/nrow(datos_Met_def)
+```
+
+* Muestra `r colnames(datos_Met_def[3])`:
+```{r}
+#Método con la función missing_values:
+tabla_mv_Met_M[3,]
+#Método 1:
+sum(is.na(datos_Met_def[,3]))*100/nrow(datos_Met_def)
+#Método 2:
+a<-datos_Met_def[,3]
+a<-na.omit(a)
+(nrow(datos_Met_def)-length(a))*100/nrow(datos_Met_def)
+```
+
+* Muestra `r colnames(datos_Met_def[4])`:
+```{r}
+#Método con la función missing_values:
+tabla_mv_Met_M[4,]
+#Método 1:
+sum(is.na(datos_Met_def[,4]))*100/nrow(datos_Met_def)
+#Método 2:
+a<-datos_Met_def[,4]
+a<-na.omit(a)
+(nrow(datos_Met_def)-length(a))*100/nrow(datos_Met_def)
+```
+
+Como se puede ver en todos los casos coinciden los resultados por lo que la función `missing_values` funciona correctamente.
+
+* *mRNA:*
+Ahora se aplicará sobre los datos de mRNAseq:
+```{r}
+tabla_mv_mRnaseq_M<-data.frame(missing_values(datos_mRnaseq_def, 2,
+                                              nrow(datos_mRnaseq_def)))
+colnames(tabla_mv_mRnaseq_M)<-"porcentaje"
+head(tabla_mv_mRnaseq_M)
+```
+
+Se comprueba si hay alguna muestra con missing values:
+```{r}
+tabla_mv_mRnaseq_M$porcentaje[tabla_mv_mRnaseq_M$porcentaje>0]
+```
+
+Ninguna muestra tiene missing values. Esto se puede deber a que son datos obtenidos de secuenciación de transcritos, donde la falta de los mismos en el alineamiento de las secuencias es que no hay expresión de dicho gen.
+
+* *CNA:*
+Se repite el mismo proceso con los datos de CNA:
+```{r}
+tabla_mv_CNA_M<-data.frame(missing_values(datos_CNA_def, 2, nrow(datos_CNA_def)))
+colnames(tabla_mv_CNA_M)<-"porcentaje"
+head(tabla_mv_CNA_M)
+```
+
+Se comprueba si hay alguna muestra con missing values:
+```{r}
+tabla_mv_CNA_M$porcentaje[tabla_mv_CNA_M$porcentaje>0]
+```
+
+De nuevo no hay missing values, pero esto se puede deber a que los datos de CNA Gistic ya vienen pre-procesados.
+
+__Eliminación de muestras__
+
+Solo se estudiará si hay que eliminar muestras en los datos de metilación ya que en los demás no había missing values. Para ello se van a graficar mediante un boxplot los porcentajes:
+
+```{r}
+boxplot(tabla_mv_Met_M, col="orange")
+```
+
+En un boxplot la raya negra de la caja representa la mediana o segundo quantil(50% de los datos), las rayas superior e inferior que dan forma a la caja son el primer(25%) y tercer quantil(75%).  Las líneas negras de fuera de la caja son el porcentaje de missing values máximo (línea superior) y mínimo (línea inferior) sin tomar en cuenta los datos atípicos.[] Éstos últimos se dibujan con circulos. En este caso solo hay un dato muy atípico, que es:
+
+https://books.google.es/books?id=gTX3DwAAQBAJ&pg=PA127&dq=boxplot&hl=es&sa=X&ved=2ahUKEwi1woiW37_wAhUD_BQKHfslARMQ6AEwAnoECAYQAg#v=onepage&q=boxplot&f=false
+
+```{r}
+tabla_mv_Met_M$porcentaje[tabla_mv_Met_M$porcentaje>19.6]
+```
+
+Casi tiene un 20% de missing values, sin embargo, este porcentaje de missing values se podría imputar, ya que dos los papers usados como guía se eliminó las muestras con un 70% de missig values en alguna de las ómicas.[]
+
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6949097/
+https://bmcmedgenomics.biomedcentral.com/articles/10.1186/s12920-021-00876-4
+
+### 4.2. _Filtrado de variables con determinado porcentaje de missing values en todas las ómicas._
+
+Se eliminarán aquellas variables con un determinado porcentaje de missing values. El porcentaje se decidirá tras observar los porcentajes de las distintas variables. Para calcularlos se usará la función `missing_values`. Pero en este caso los atributos serán `dimention=1`, ya que se quiere el porcentaje por fila, y `total=ncol(data)`.
+
+* *Metilación de DNA:*
+
+```{r}
+tabla_mv_Met_V<-data.frame(missing_values(datos_Met_def, 1, ncol(datos_Met_def)))
+colnames(tabla_mv_Met_V)<-"porcentaje"
+head(tabla_mv_Met_V)
+```
+Como si hay missing values se graficarán con un boxplot más adelante para estudiar a partir de que porcentaje se deben eliminar las variables.
+
+* *mRNA*
+
+Lo mismo se hará con mRNAseq:
+
+```{r}
+tabla_mv_mRnaseq_V<-data.frame(missing_values(datos_mRnaseq_def, 1,
+                                              ncol(datos_mRnaseq_def)))
+colnames(tabla_mv_mRnaseq_V)<-"porcentaje"
+head(tabla_mv_mRnaseq_V)
+```
+
+```{r}
+tabla_mv_mRnaseq_V$porcentaje[tabla_mv_mRnaseq_V$porcentaje>0]
+```
+
+De nuevo no hay missing values.
+
+* *CNA*:
+
+```{r}
+tabla_mv_CNA_V<-data.frame(missing_values(datos_CNA_def, 1, ncol(datos_CNA_def)))
+colnames(tabla_mv_CNA_V)<-"porcentaje"
+head(tabla_mv_CNA_V)
+```
+
+Se comprueba si hay missing values:
+```{r}
+tabla_mv_CNA_M$porcentaje[tabla_mv_CNA_M$porcentaje>0]
+```
+
+De nuevo no hay missing values.
+
+__Eliminación de variables__
+
+Solo se estudiará si hay que eliminar variables en los datos de metilación ya que en los demás no había missing values. Para ello se van a graficar mediante un boxplot los porcentajes:
+
+```{r}
+boxplot(tabla_mv_Met_V, col="blue")
+```
+Se van a eliminar únicamente las que tengan un 70% de missing values, ya que es el porcentaje usado en los papers en los que se basa este papeline. Sin embargo, los casos con más de 70% de missing values, en realidad tienen 100%.
+
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6949097/
+https://bmcmedgenomics.biomedcentral.com/articles/10.1186/s12920-021-00876-4
+
+Para hacerlo primero se va a combinar el data frame datos_Met_def con la tabla_mv_Met_V, que como la tabla se obtuvo a partir del data frame tienen el mismo orden de filas.
+
+```{r}
+datos_Met_def_se<-as.data.frame(cbind(datos_Met_def, tabla_mv_Met_V))
+datos_Met_def_se[1:5, 271:273]
+```
+
+Ahora se eliminará las filas con más de un 70% en porcentaje.
+
+```{r}
+datos_Met_def_se<-datos_Met_def_se[datos_Met_def_se$porcentaje<70,]
+datos_Met_def_se[1:5, 271:273]
+```
+El número de filas eliminadas ha sido de `r nrow(datos_Met_def)-nrow(datos_Met_def_se)` de las cuales, como se ve en el box plot, el 100% tenían 100% de missing values.
+
+A continuación redefinimos el data frame "datos_Met_def" eliminando de "datos_Met_def_se" la columna porcentajes.
+
+```{r}
+datos_Met_def<-datos_Met_def_se[, 1:272]
+datos_Met_def[1:5, 1:3]
+```
+
+Como se puede ver, comparando con la primera tabla de "datos_Met_def_se", se han eliminado los que tienen 100% de missing values.
+
+Finalmente se va a ordenar las bases de datos para que las columnas estén en el mismo orden.
+
+iManual
+https://www.bioconductor.org/packages/release/bioc/vignettes/iClusterPlus/inst/doc/iManual.pdf
+
+```{r}
+#datos_CNA_def<-datos_CNA_def[order(colnames(datos_CNA_def)),]
+```
+
+Por último se ordenará las columnas de mRNA con el mismo orden que las de CNA y Met:
+
+```{r}
+names<-colnames(datos_mRnaseq_def)
+temp<-colnames(datos_CNA_def)
+v<-vector()
+for (i in 1:length(temp)){
+  for (j in 1:length(names)){
+    if(temp[i]==names[j]){
+      v<-c(v, j)
+    }
+  }
+}
+```
+
+```{r}
+a<-data.frame()
+p<-0
+for (i in v){
+  if(p>0){
+    a<-cbind(a,datos_mRnaseq_def[, i])
+  }
+  if(p==0){
+    a<-datos_mRnaseq_def[, i]
+    p<-p+1
+  }
+} 
+```
+
+```{r}
+a[1:5,1:5]
+```
+
+Si se visualiza el data frame "datos_mRnaseq_def" se ve que las 4 primeras muestras que aparecen en "datos_CNA_def" aparecen a partir de la columna 6 de "datos_mRnaseq_def", por lo que vamos a comprobar si se han guardado las muestras en el orden correcto.
+
+```{r}
+datos_mRnaseq_def[1:5, 6:9]
+```
+La siguiente muestra que aparece en "datos_CNA_def" aparece en la columna 42 de "datos_mRnaseq_def":
+```{r}
+test<-as.data.frame(datos_mRnaseq_def[1:5, 42])
+colnames(test)<-colnames(datos_mRnaseq_def[42])
+test
+```
+Se comprueba que los datos coinciden.
+
+A continuación guardamos nuestro nuevo data frame a bajo el nombre de "datos_mRnaseq_def" y les damos nombre a las columnas:
+```{r}
+names<-rownames(datos_mRnaseq_def)
+datos_mRnaseq_def<-as.data.frame(a)
+rownames(datos_mRnaseq_def)<-names
+colnames(datos_mRnaseq_def)<-colnames(datos_CNA_def)
+
 ```
 
 
-
-
-## 4.Filtrado de muestras
-
-
-
-
-
-### 4.1. _Filtrado de muestras con x% de missing values en todas las ómicas._
-### 4.2. _Filtrado de variables con un x% de missing values._
-
-
-
-
-
-
-
+A continuación se comprueba que tienen el mismo orden:
 
 
