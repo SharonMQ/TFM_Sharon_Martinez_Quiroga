@@ -58,7 +58,7 @@ knitr::opts_chunk$set(echo = TRUE, comment = NULL, cache = TRUE)
 
 Ahora definimos nuestro directorio:
 ```{r}
-setwd("/media/home/ESD-USB/UOC/6to cuatrimestre/TFM/Workflows/Workflow iClusterBayes")
+setwd("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow iClusterBayes")
 ```
 
 ### 1.2. Carga de paquetes a utilizar.
@@ -276,6 +276,7 @@ selec_col<-function(data, boolean_vector){
     if (boolean_vector[i]==TRUE){
       if(i==1){
         db<-data[,i]
+        p<-1
       }
       if(i>1){
         if(p==1){
@@ -317,6 +318,7 @@ selec_col_n<-function(col_n_data, boolean_vector){
     if (boolean_vector[i]==TRUE){
       if(i==1){
         v<-col_n_data[i]
+        p<-1
       }
       if(i>1){
         if(p==1){
@@ -439,7 +441,7 @@ colnames(datos_mRnaseq_se)<-stringr::str_sub(temp, start=1, end=12)
 datos_mRnaseq_se[1:5,1:3]
 ```
 
-PAra ver que muestras están en las tres ómicas se guarda en el mismo vector el nombre de las muestras de CNA y Met, y los nombres de mRNAseq.
+Para ver que muestras están en las tres ómicas se guarda en el mismo vector el nombre de las muestras de CNA y Met, y los nombres de mRNAseq.
 
 ```{r}
 muestras<-c(colnames(datos_CNA), colnames(datos_mRnaseq_se))
@@ -460,7 +462,6 @@ head(muestras_se)
 A continuación se define una función, `selec_omicas` que recorre cada código de cada muestra de la base de datos original, datos_mRnaseq_se, y los compara con cada código de aquellas muestras que se quiere seleccionar, que son las de frecuencia 2. Por cada muestra de la base de datos original se guardará un boolean en un vector que se ha denominado `TP`. El boolean sera TRUE si la muestra de esa posición coincide con alguna de las muestras deseadas, y será FALSE si no hay ninguna coincidencia.
 
 ```{r}
-
 selec_omicas<-function(datos, datos_selec){
   boolean_vector<-vector()
   for (i in 1:length(datos)){
@@ -500,6 +501,10 @@ Se genera un vector de booleans que indica en cada posición si la correspondien
 datos_mRnaseq_def<-as.data.frame(selec_col(datos_mRnaseq_se, muestras_mRNA))
 colnames(datos_mRnaseq_def)<-selec_col_n(colnames(datos_mRnaseq_se), muestras_mRNA)
 row.names(datos_mRnaseq_def)<-row.names(datos_mRnaseq_se)
+```
+
+
+```{r}
 ncol(datos_mRnaseq_def)==nrow(muestras_se)
 ```
 
@@ -813,36 +818,32 @@ Para hacerlo primero se va a combinar el data frame datos_Met_def con la tabla_m
 
 ```{r}
 datos_Met_def_se<-as.data.frame(cbind(datos_Met_def, tabla_mv_Met_V))
-datos_Met_def_se[1:5, 271:273]
+datos_Met_def_se[1:5, 271:275]
 ```
 
 Ahora se eliminará las filas con más de un 70% en porcentaje.
 
 ```{r}
 datos_Met_def_se<-datos_Met_def_se[datos_Met_def_se$porcentaje<70,]
-datos_Met_def_se[1:5, 271:273]
+datos_Met_def_se[1:5, 271:275]
 ```
 El número de filas eliminadas ha sido de `r nrow(datos_Met_def)-nrow(datos_Met_def_se)` de las cuales, como se ve en el box plot, el 100% tenían 100% de missing values.
 
 A continuación redefinimos el data frame "datos_Met_def" eliminando de "datos_Met_def_se" la columna porcentajes.
 
 ```{r}
-datos_Met_def<-datos_Met_def_se[, 1:272]
+datos_Met_def<-datos_Met_def_se[, 1:274]
 datos_Met_def[1:5, 1:3]
 ```
 
 Como se puede ver, comparando con la primera tabla de "datos_Met_def_se", se han eliminado los que tienen 100% de missing values.
 
-Finalmente se va a ordenar las bases de datos para que las columnas estén en el mismo orden.
+Finalmente se va a ordenar las bases de datos para que las columnas estén en el mismo orden, como CNA y Met ya tienen el mismo orden, se ordenará mRNAseq para que coincida con las dos anteriores.
 
 iManual
 https://www.bioconductor.org/packages/release/bioc/vignettes/iClusterPlus/inst/doc/iManual.pdf
 
-```{r}
-#datos_CNA_def<-datos_CNA_def[order(colnames(datos_CNA_def)),]
-```
 
-Por último se ordenará las columnas de mRNA con el mismo orden que las de CNA y Met:
 
 ```{r}
 names<-colnames(datos_mRnaseq_def)
@@ -875,15 +876,15 @@ for (i in v){
 a[1:5,1:5]
 ```
 
-Si se visualiza el data frame "datos_mRnaseq_def" se ve que las 4 primeras muestras que aparecen en "datos_CNA_def" aparecen a partir de la columna 6 de "datos_mRnaseq_def", por lo que vamos a comprobar si se han guardado las muestras en el orden correcto.
+Si se visualiza el data frame "datos_mRnaseq_def" se ve que las 4 primeras muestras que aparecen en "datos_CNA_def" aparecen a partir de la columna 9 de "datos_mRnaseq_def", por lo que vamos a comprobar si se han guardado las muestras en el orden correcto.
 
 ```{r}
-datos_mRnaseq_def[1:5, 6:9]
+datos_mRnaseq_def[1:5, 8:11]
 ```
 La siguiente muestra que aparece en "datos_CNA_def" aparece en la columna 42 de "datos_mRnaseq_def":
 ```{r}
-test<-as.data.frame(datos_mRnaseq_def[1:5, 42])
-colnames(test)<-colnames(datos_mRnaseq_def[42])
+test<-as.data.frame(datos_mRnaseq_def[1:5, 44])
+colnames(test)<-colnames(datos_mRnaseq_def[44])
 test
 ```
 Se comprueba que los datos coinciden.
@@ -894,7 +895,6 @@ names<-rownames(datos_mRnaseq_def)
 datos_mRnaseq_def<-as.data.frame(a)
 rownames(datos_mRnaseq_def)<-names
 colnames(datos_mRnaseq_def)<-colnames(datos_CNA_def)
-
 ```
 
 
