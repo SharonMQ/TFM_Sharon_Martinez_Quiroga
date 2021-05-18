@@ -881,7 +881,7 @@ Si se visualiza el data frame "datos_mRnaseq_def" se ve que las 4 primeras muest
 ```{r}
 datos_mRnaseq_def[1:5, 8:11]
 ```
-La siguiente muestra que aparece en "datos_CNA_def" aparece en la columna 42 de "datos_mRnaseq_def":
+La siguiente muestra que aparece en "datos_CNA_def" aparece en la columna 44 de "datos_mRnaseq_def":
 ```{r}
 test<-as.data.frame(datos_mRnaseq_def[1:5, 44])
 colnames(test)<-colnames(datos_mRnaseq_def[44])
@@ -897,7 +897,40 @@ rownames(datos_mRnaseq_def)<-names
 colnames(datos_mRnaseq_def)<-colnames(datos_CNA_def)
 ```
 
-
 A continuación se comprueba que tienen el mismo orden:
+
+```{r}
+datos_mRnaseq_def[1:5, 1:5]
+```
+
+## Guardado de datos filtrados:
+
+Finalmente se guardará los resultados para usarlos en la segunda parte de este Workflow:
+
+* Metilación de DNA:
+
+```{r}
+dir.create("Datos_filtrados")
+resultdir<- file.path("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow iClusterBayes/Datos_filtrados", "datos_Met_filt.csv")
+write.csv(datos_Met_def, resultdir, row.names = TRUE)
+```
+
+* CNA:
+```{r}
+resultdir<- file.path("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow iClusterBayes/Datos_filtrados", "datos_CNA_filt.csv")
+write.csv(datos_CNA_def, resultdir, row.names = TRUE)
+```
+
+* mRNA:
+```{r}
+resultdir<- file.path("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow iClusterBayes/Datos_filtrados", "datos_mRNA_filt.csv")
+write.csv(datos_mRnaseq_def, resultdir, row.names = TRUE)
+```
+
+* Datos clínicos
+```{r}
+resultdir<- file.path("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow iClusterBayes/Datos_filtrados", "datos_clinicos_filt.csv")
+write.csv(datos_clinicos_def, resultdir, row.names = TRUE)
+```
 
 
