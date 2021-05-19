@@ -1,0 +1,228 @@
+---
+title: "Trabajo de Fin de Máster: Normalización de Row counts RNAseq
+date: "1/5/2021"
+output: pdf_document
+bibliography: Workflow2.bib
+csl: springer-vancouver-brackets.csl
+---
+
+**_Máster en Bioinformática y Bioestadística_** 
+
+**Área del trabajo:_2_**
+
+**Título del Trabajo: _Detección de biomarcadores de prognosis en Colon adenocarcinoma mediante la integración de datos ómicos con varios métodos disponibles_**
+
+**Nombre del autor/a:_Sharon Martínez Quiroga_**
+
+**Nombre del consultor/a:_Jaume Sastre Tomàs_**
+
+**Nombre del PRA:_Marc Maceira Duch_**
+
+
+## Indice:
+
+
+6. __Filtrado de datos__ 
+7. __Transformación de datos.__
+8. __Control de calidad.__
+9. __Normalización y transformación de datos.__
+10. __Control de calidad.__
+
+
+## Preparación del entorno de trabajo:
+
+### Preparación del entorno:
+
+Lo primero que hacemos es definir en el chunk el atributo cache=TRUE, para que R guarde los resultados de los chunks y solo repita la ejecución de un chunk, y de los otros chunks que se vean afectados por dicho cambio cuando se cambie el código en el chunk.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = NULL, cache = TRUE)
+```
+
+Ahora definimos nuestro directorio:
+```{r}
+setwd("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow iClusterBayes")
+```
+
+### Carga de paquetes a utilizar.
+
+Ahora vamos a cargar los paquetes que vamos a utilizar y que explicaremos según se vayan requiriendo:
+
+```{r message=FALSE, warning=FALSE}
+library(edgeR)
+```
+
+### Cargar datos filtrados:
+
+Antes que nada se cargará los datos de **mRNA** con row counts que han sido filtrados por la parte 1 del workflow de iClusterBayes:
+
+```{r}
+datos_mRNA_def <- readr::read_csv("datos row counts/datos_mRNA_filt_row_counts.csv")
+datos_mRNA_def[1:5, 1:3]
+```
+
+Se da nombre a los rownames:
+```{r}
+rnames<-as.vector(t(datos_mRNA_def[,1]))
+datos_mRNA_def<-as.data.frame(datos_mRNA_def[,-1])
+rownames(datos_mRNA_def)<-rnames
+datos_mRNA_def[1:5, 1:3]
+```
+
+Para no acumular datos que nos consuman la RAM se va a eliminar la variable "rnames" con la función `rm`(o `remove`).
+
+https://www.rdocumentation.org/packages/base/versions/3.6.2/topics/remove
+
+```{r}
+rm("rnames")
+```
+
+__En la normalización nos basaremos en el protocolo de []
+https://bioconductor.org/packages/devel/workflows/vignettes/RNAseq123/inst/doc/limmaWorkflow.html
+
+## 1. Filtrado de datos.
+
+A continuación, se filtrarán los genes que tengan un número de counts 0 en todas las muestras, ya que no aportan información. Para ello primero se van a visualizar:
+```{r}
+table(rowSums(datos_mRNA_def==0)==274)
+```
+
+Ahora se obtiene una tabla con valores TRUE cada vez que hay un row counts de valor 0.
+```{r}
+boolean_table<-datos_mRNA_def==0
+boolean_table[1:5, 1:5]
+```
+
+```{r}
+a<-table(rowSums(boolean_table))
+a[275]
+```
+
+Ahora se guarda solo los genes que tengan algun valor de row count mayor de 0.
+
+```{r}
+keep <- rowSums(boolean_table) != 274
+datos_mRNA_filt<-datos_mRNA_def[keep,]
+```
+
+## 2. Transformación de datos:
+
+Los únicos datos que se transforman son los de mRNAseq, para hacerlo se usará el paquete `edgeR`. Lo primero que se hace es crear un objeto DGEList, para poder realizar la transformación con la función `cpm`. Este objeto guarda los datos en un data frame y en otro data frame anota el library size y el grupo al que pertenece cada muestra, que en este caso son todas del mismo grupo.
+
+```{r}
+datos_mRNA<-DGEList(datos_mRNA_filt)
+head(datos_mRNA$samples)
+```
+
+A continuación se realiza la transformación $log_2(CPM-2/L)$, para ello se usa la función `cpm` con el atributo `log=TRUE`.
+
+Esta transformación conciste en:
+
+* Se divide el library size de la muestra por 1.000.000 y se obtiene el factor de escalado “per million”.
+* Se dividen los counts de cada gen por el factor de escalado y se obtienen los CPM.
+* Se calcula el log2(CPM+(2/L)) donde 2 impide que el el logaritmo de 0 y L es el library size medio de todas las muestras.
+
+__FAQ [internet] National Cancer Institute  [cited 4 May 2021]. Available from:  https://btep.ccr.cancer.gov/question/faq/what-is-the-difference-between-rpkm-fpkm-and-tpm/__
+
+```{r}
+datos_mRNA<- cpm(datos_mRNA, log=TRUE)
+```
+Visualizamos algunos resultados:
+```{r}
+datos_mRNA[1:5,1:5]
+```
+Los valores negativos se corresponden con quellos en los que CPM es menor que 1 y por ello su logaritmo da valor negativo.
+
+## 3. Control de calidad.
+
+* mRNAseq:
+
+Ahora se observa la distribución de los datos mediante boxplots:
+```{r}
+boxplot(datos_mRNA[,1:150], ylab="Log2 counts per million", col="light blue")
+# Se añade una línea horizonta que corresponde con la mediana de logCPM.
+abline(h=median(datos_mRNA),col="blue")
+title("Boxplots of logCPMs sin normalizar")
+```
+
+```{r}
+boxplot(datos_mRNA[, 151: 274], ylab="Log2 counts per million", col="light blue")
+# Se añade una línea horizonta que corresponde con la mediana de logCPM.
+abline(h=median(datos_mRNA),col="blue")
+title("Boxplots of logCPMs sin normalizar")
+```
+Como se observa la transformación de los datos no fue suficiente para eliminar el sequencing batch por lo que será necesario usar la normalización TMM de los counts para ello, y posteriormente volver a transformarlos a $log_2(CPM-2/L)$
+
+## 4. Normalización de datos.
+
+La normalización es un proceso que busca que los errores técnicos tengan el menor de los efectos sobre los resultados, mediante la identificación y eliminación de las diferencias de origen técnico que se observan en los datos. El método TMM toma en cuenta que el número de lecturas de un gen depende más de la muestra que se está analizando que del nivel de expresión y longitud del propio gen, por eso es adecuada para eliminar este tipo de bias. 
+
+TMM se usará en este análisis porque para normalizar asume que más de la mitad de los genes no tienen expresión diferencial.
+
+Para calcular TMM, que se usará para obtener el factor de corrección *Cj* que normaliza los datos, hay que calcular primero los valores log-fold-changes (*Mg*) e intensidad absoluta(*Ag*) a partir de los counts transformados mediante mRNAseq:
+ 
+$$M_g(j,r)=log_2(K_{gj}/D_j)- log_2(K_{gr}/D_r)$$
+$$A_g(j,r)=1/2*(log_2(k_{gj}/D_j)+log_2(k_{gr}/D_r))$$
+Donde Kgj es el número de lecturas del gen g en la muestra j; Kgr es el número de lecturas del gen g en la muestra r; y Dj y Dr son el número total de lecturas en las correspondientes muestras j y r.
+
+A continuación, se filtran el 30% de los valores Mg y el 5% de los valores Ag más elevados. Con los valores de los genes que no se han descartado se calcula el peso de la media, wg, de cada uno de dichos genes. Luego con las wg se calcula TMM. 
+
+
+$$w_g(j,r)=(\frac{D_j-K_{g,j}}{D_j*K_{gj}}+\frac{D_r-K_{g,r}}{D_r*K_{gr}})^{⁻1}$$
+ 
+$$TMM(j,r)=\frac{\sum_{g\in G*}w_g(j,r)*M_g(j,r)}{\sum_{g\in G*}w_g(j,r)}$$ 
+Finalmente, se calcula el factor de corrección mediante $Cj = 2^{TMM(j,r)}$. Para hacer todos estos cálculos se elige una muestra de referencia r con la que se comparan las demás muestras.
+
+__Robinson MD, Oshlack A. A scaling normalization method for differential expression analysis of RNA-seq data. Genome Biol. 2010;11(3):R25. doi: 10.1186/gb-2010-11-3-r25. Epub 2010 Mar 2. PMID: 20196867; PMCID: PMC2864565.__
+
+Para obtener los datos normalizados se vuelve a obtener los datos en un objeto DGEList con la función del mismo nombre:
+
+```{r}
+datos_mRNA<-DGEList(datos_mRNA_filt)
+head(datos_mRNA$samples)
+```
+
+A continuación se normaliza con la función `calcNormFactors` y método `TMM`.
+
+```{r}
+datos_mRNA<-calcNormFactors(datos_mRNA, method = "TMM")
+datos_mRNA$counts[1:5, 1:5]
+```
+
+Ahora se observa que se han normalizado, ya que se ha añadido al objeto los datos de los factores de normalización.
+```{r}
+datos_mRNA$samples
+```
+
+```{r}
+datos_mRNA_norm<-as.data.frame(datos_mRNA$counts)
+datos_mRNA_norm[1:5, 1:5]
+```
+
+Ahora se vuelven a transformar los datos a $log_2(CPM-2/L)$:
+
+```{r}
+datos_mRNA<- cpm(datos_mRNA_norm, log=TRUE)
+datos_mRNA[1:5,1:5]
+```
+
+## 5. Control de calidad.
+
+Con los siguientes boxplots se ve que la normalización no ha mejorado mucho la distribución de los datos.
+
+```{r}
+boxplot(datos_mRNA[,1:150], ylab="Counts", col="light blue")
+# Se añade una línea horizonta que corresponde con la mediana de counts.
+abline(h=median(as.matrix(datos_mRNA)),col="blue")
+title("Boxplots of logCPMs normalizados")
+```
+
+```{r}
+boxplot(datos_mRNA[,150:274], ylab="Counts", col="light blue")
+# Se añade una línea horizonta que corresponde con la mediana de counts.
+abline(h=median(as.matrix(datos_mRNA)),col="blue")
+title("Boxplots of logCPMs normalizados")
+```
+
+Se probó con distintos métodos de normalización pero ninguno mejoró la distribución de los datos eliminando el sequencing batch, por lo que lo más probable es que el sequencing batch se deba a las diferencias de longitud entre los genes por lo que la normalización a realizar debe ser la transformación de counts a FPKM. 
+
