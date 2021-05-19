@@ -5,8 +5,8 @@ Contenido y orden de los documentos:
 
 1-Workflow_iClusterBayes_parte1_Row_Counts:
   1. __Preparación del entorno de trabajo.__
-    1.1. _Preparación del entorno._
-    1.2. _Carga de paquetes a utilizar._
+    * 1.1. _Preparación del entorno._
+    * 1.2. _Carga de paquetes a utilizar._
   2. __Descarga de datos.__
   3. __Selección de muestras__
     * 3.1. _Selección de muestras patológicas._
