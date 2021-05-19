@@ -15,7 +15,6 @@ Contenido y orden de los documentos:
   4. __Filtrado de muestras__
     * 4.1. _Filtrado de muestras con determinado porcentaje de missing values en todas las ómicas._
     * 4.2. _Filtrado de variables con determinado porcentaje de missing values en todas las ómicas._
-    * 4.3. _Filtrado de probes en datos de metilación._
   5. __Ordenación de datos__
   
 2-Normalización de datos en Row_Counts:
@@ -37,7 +36,7 @@ Contenido y orden de los documentos:
   4. __Filtrado de muestras__
     * 4.1. _Filtrado de muestras con determinado porcentaje de missing values en todas las ómicas._
     * 4.2. _Filtrado de variables con determinado porcentaje de missing values en todas las ómicas._
-    * 4.3. Filtrado de probes en datos de metilación
+    * 4.3. _Filtrado de probes en datos de metilación_
   5. __Ordenación de datos__
   6. __Control de Calidad__
  
