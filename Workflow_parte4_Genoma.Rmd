@@ -1,0 +1,111 @@
+---
+title: "Workflow parte1"
+output: pdf_document
+---
+
+## 1. Preparación del entorno de trabajo:
+
+### 1.1. Preparación del entorno:
+
+Lo primero que hacemos es definir en el chunk el atributo cache=TRUE, para que R guarde los resultados de los chunks y solo repita la ejecución de un chunk, y de los otros chunks que se vean afectados por dicho cambio cuando se cambie el código en el chunk.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = NULL, cache = TRUE)
+```
+
+Ahora definimos nuestro directorio:
+```{r}
+setwd("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow")
+```
+
+### 1.2. Carga de paquetes a utilizar.
+
+Ahora se va a cargar los paquetes que vamos a utilizar y que explicaremos según se vayan requiriendo:
+
+
+## 2.Descarga de datos.
+
+Se probó entrenar iClusterBayes con los datos de CNASNP y realizar el filtrado propuesto por el manual de iClusterBayes para datos de CNASNP, pero generó más variables que las de GISTIC_AllByGene en función de los genes afectados. 
+
+Los datos de GISTIC_AllGene ya se descargaron junto con los de metilación con el paquete `curatedTDGAData`, por lo que ahora se cargarán los data frames guardados para poder usarlos en los pasos siguientes.
+
+Para ello primero se cargará el archivo.csv con la función `read_csv` del paquete `readr`. Como se cargan en formato tribble se convertirán a data frame con `as.data.frame`. La primera columna son los nombres de las filas, genes, por lo que se da los valores de la primera columna a las filas con la función `rownames`, y a continuación se elimina la primera columna.
+
+```{r message=FALSE, warning=FALSE}
+datos_CNA<-as.data.frame(readr::read_csv("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow/Datos_patologicos/datos_COAD_pat_01_COAD_GISTIC_AllByGene-20160128.csv"))
+rownames(datos_CNA)<-datos_CNA$X1
+datos_CNA<-datos_CNA[, -1]
+datos_CNA[1:5, 1:2]
+```
+
+A continuación se va a acortar el nombre de las muestras para que se puedan ver llos datos en menos espacio y para en el Workflow parte4 poder comparar las muestras de este dataset con los de las otras ómicas.
+
+```{r}
+datos_CNA[1:5,1:3]
+```
+
+```{r}
+temp<-colnames(datos_CNA)
+colnames(datos_CNA)<-stringr::str_sub(temp, start=1, end=15)
+datos_CNA[1:5,1:3]
+```
+## 3.Filtrado de Missing values:
+
+Lo primero que se hará será crear la función `missing_values` que calcule el porcentaje de missing values por cada columna o fila, para poder observar la calidad de los datos antes del filtrado. No se explicará porque ya se explicó en Workflow_parte1_transcriptómica, ni se comprobará su funcionamiento porque ya se realizó en Workflow_parte2_metilómica.
+
+```{r}
+missing_values<-function(data, dimention, total){
+  db<-apply(as.matrix(data), dimention, function(y) sum(is.na(y))*100/total)
+}
+```
+
+* **Porcentaje de Missing Values en muestras**
+
+```{r}
+tabla_mv_CNA<-data.frame(missing_values(datos_CNA, 2, nrow(datos_CNA)))
+colnames(tabla_mv_CNA)<-"porcentaje"
+head(tabla_mv_CNA)
+```
+
+Se comprueba si hay alguna muestra con missing values:
+```{r}
+boxplot(tabla_mv_CNA, col="red",  ylab="Porcentaje de Missing Values")
+```
+
+Se observa que no hay missing values en ninguna muestra, igualmente se estudiará los missing values por gen por si el elevado número de genes y los pocos missing values han hecho que el porcentaje se aproxime a 0.
+
+* **Porcentaje de Missing Values en genes**
+
+```{r}
+tabla_mv_CNA<-data.frame(missing_values(datos_CNA, 1, ncol(datos_CNA)))
+colnames(tabla_mv_CNA)<-"porcentaje"
+head(tabla_mv_CNA)
+```
+
+Se comprueba si hay missing values:
+```{r}
+boxplot(tabla_mv_CNA, col="red",  ylab="Porcentaje de Missing Values")
+```
+
+De nuevo no hay missing values, por lo tanto ,los datos se pueden usar tal y como están en la integración. 
+
+## Control de Calidad
+
+Estos datos ya se han normalizado y anotado en el nivel en el que se han descargado, aún así vamos a ver la cantidad de ruido que tienen.
+
+```{r}
+boxplot(datos_CNA[,1:150], ylab="G-scores", col="light blue", outline=FALSE )
+# Se añade una línea horizonta que corresponde con la mediana de G-scores.
+abline(h=median(as.matrix(datos_CNA)),col="blue")
+title("Boxplots of G-scores")
+```
+```{r}
+boxplot(datos_CNA[,151:292], ylab="G-scores", col="light blue", outline=FALSE )
+# Se añade una línea horizonta que corresponde con la mediana de G-scores.
+abline(h=median(as.matrix(datos_CNA)),col="blue")
+title("Boxplots of G-scores")
+```
+
+Se observa que a pesar de estar normalizados los datos muestran una distribución muy distinta debido a que los mismos genes no están afectados en todas las muestras, y cuando lo están no lo están de la misma forma. Por ello la normalización no es capaz de homogeneizar los datos. 
+
+

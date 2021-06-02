@@ -1,0 +1,222 @@
+---
+title: "Workflow parte 3: Metiloma"
+output: pdf_document
+---
+
+## 1. Preparación del entorno de trabajo:
+
+### 1.1. Preparación del entorno:
+
+Lo primero que hacemos es definir en el chunk el atributo cache=TRUE, para que R guarde los resultados de los chunks y solo repita la ejecución de un chunk, y de los otros chunks que se vean afectados por dicho cambio cuando se cambie el código en el chunk.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = NULL, cache = TRUE)
+```
+
+Ahora definimos nuestro directorio:
+```{r}
+setwd("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow")
+```
+
+### 1.2. Carga de paquetes a utilizar.
+
+Ahora se va a cargar los paquetes que vamos a utilizar y que explicaremos según se vayan requiriendo:
+
+```{r message=FALSE, warning=FALSE}
+library(readr)
+library(MethylMix)
+```
+
+## 2.Carga de datos.
+
+* **Datos de metiloma**
+Se descargaron los datos de metilación con el paquete `curatedTDGAData` junto con los datos de CNA, y los datos clínicos que se van a utilizar en el análisis de supervivencia. Para procesar los datos vamos a cargar en este workflow los datos descargados de metiloma.
+
+```{r}
+Met_norm<-read_csv("Datos_normales/datos_COAD_norm_11_COAD_Methylation_methyl450-20160128.csv")
+Met_norm<-as.data.frame(Met_norm)
+names<-Met_norm[,1]
+Met_norm<-Met_norm[,2:39]
+row.names(Met_norm)<-names
+dim(Met_norm)
+```
+
+
+```{r}
+Met_pat<-read_csv("Datos_patologicos/datos_COAD_pat_01_COAD_Methylation_methyl450-20160128.csv")
+Met_pat<-as.data.frame(Met_pat)
+names<-Met_pat[,1]
+Met_pat<-Met_pat[,2:293]
+row.names(Met_pat)<-names
+dim(Met_pat)
+```
+
+Debido a que iClusterBayes no maneja missing values se unirán los datos de metilómica normales y patológicos en un data, para eliminar aquellos probes de metilation array con NA. No se realizará imputación de datos por falta de tiempo.
+
+```{r}
+datos_Met<-as.data.frame(cbind(Met_norm, Met_pat))
+datos_Met[1:5, 37:40]
+```
+
+Para reducir la ram se eliminan los data frames independientes ya que no se necesitan.
+
+```{r}
+rm(Met_norm)
+rm(Met_pat)
+```
+
+Además se van a recortar los nombres de las columnas hasta el código del tipo de muestra.
+
+```{r}
+temp<-colnames(datos_Met)
+colnames(datos_Met)<-stringr::str_sub(temp, start=1, end=15)
+datos_Met[1:5,1:3]
+```
+
+
+* **Carga de datos de RNAseq en log(FPKM) sin filtrar biológicamente**
+
+Estos datos se usarán para realizar el filtrado biológico de metiloma, primero se filtrará por diferencia de metilación entre muestras normales y patológicas, y a continuación se integrarán los datos filtrados de metilación con los datos de expresión génica para obtener el 30% de los genes con metilación afectada y con expresión diferencial más significativos. Cuanta mayor metilación menor expresión. 
+Esto permite identificar la metilación diferencial funcional buscando seleccionar los genes con metilación diferencial que tengan un efecto significativo e inversamente correlacionado con su expresión génica.
+
+## 3.Filtrado de datos:
+
+### 3.1.Filtrado de missing values en metilómica:
+
+* **Visualización de la distribución del porcentaje de missing values por muestra.**
+
+A continuación se va a estudiar la distribución de los missing values antes de eliminarlos todos, ya que no se dispone de tiempo para realizar la imputación de datos. Para ello será necesario crear una función `missing_values` que calcule el porcentaje de missing values por cada columna o fila, para poder observar la calidad de los datos antes del filtrado.
+
+La función creada llamará a la función `apply` que aplica por fila o columna de la matriz el cálculo que se le indique. `apply` tiene tres atributos:
+
+* x: matriz sobre la que realizarán los cálculos.
+* Margin: si `apply` se ejecuta por fila se le indica un "1" y si es por columna se indica un "2".
+* FUN: a `apply` hay que darle una función o un cálculo para que ejecute. 
+
+En la función `missing_values` se llamará a `apply` a la vez que se convierte en matriz, con `as.matrix`, la base de datos de la que se quiere obtener los porcentajes de missing values. La función que aplicará `apply` sumará con `sum` todos los _NA_ de la fila o columna, a los que reconocerá con la función `is.na`. Como `is.na` debe tener un vector, "y" sobre el que ejecutarse, se debe definir una función interna en la que "y" será la fila o columna sobre la que se está ejecutando `apply`.  Una vez que la función sume los _NA_ calculará el porcentaje multiplicando por 100 y dividiendo por el número de columnas o filas dependiendo del caso. Los atributos a indicar a `missing_values` serán:
+
+* `data`: data frame a partir de la cual se realizarán los cálculos.
+* `dimention`: 1 si el porcentaje de missing values es por fila, variable. 2 si el porcentaje de missing values es por columna, muestra.
+* `total`: si `dimention=1` se indicará `ncol(data)`, es decir, el número de columnas, muestras, para las que se ha medido dicha variable. si `dimention=2` se indicará `nrow(data)`, es decir, el número de filas, variables, que se han medido para dicha muestra.
+
+https://stackoverflow.com/questions/24027605/determine-the-number-of-na-values-in-a-column
+https://www.rdocumentation.org/packages/base/versions/3.6.2/topics/apply
+https://www.rdocumentation.org/packages/ursa/versions/3.9.2/topics/is.na
+
+```{r}
+missing_values<-function(data, dimention, total){
+  db<-apply(as.matrix(data), dimention, function(y) sum(is.na(y))*100/total)
+}
+```
+
+Para probar la función se va a usar los datos de Metilación ya que son los únicos que tienen valores NA de los sets de datos ómicos que se van a usar. 
+
+```{r}
+tabla_mv_Met_M<-data.frame(missing_values(datos_Met, 2, nrow(datos_Met)))
+colnames(tabla_mv_Met_M)<-"porcentaje"
+head(tabla_mv_Met_M)
+```
+
+Para comprobar que funciona se calculará manualmente el porcentaje de _NA_ de las 4 primeras muestras por dos métodos:
+
+* Muestra `r colnames(datos_Met_def[1])`:
+```{r}
+#Método con la función missing_values:
+tabla_mv_Met_M[1,]
+#Método 1:
+#Aplicación manual de la función utilizada por apply.
+sum(is.na(datos_Met[,1]))*100/nrow(datos_Met)  
+#Método 2:
+#Se obtiene la columna y se guarda en un vector "a", se le omiten los NA,
+#posteriormente se resta el nuevo número de elementos de "a" al total de 
+#valores que tenía a antes, que se corresponden con nrow(datos_Met_def). 
+#A continuación se calcula el porcentaje correspondiente al número de NA 
+#contados.
+a<-datos_Met[,1]
+a<-na.omit(a)
+(nrow(datos_Met)-length(a))*100/nrow(datos_Met)
+```
+
+* Muestra `r colnames(datos_Met_def[2])`:
+```{r}
+#Método con la función missing_values:
+tabla_mv_Met_M[2,]
+#Método 1:
+sum(is.na(datos_Met[,2]))*100/nrow(datos_Met)
+#Método 2:
+a<-datos_Met[,2]
+a<-na.omit(a)
+(nrow(datos_Met)-length(a))*100/nrow(datos_Met)
+```
+
+* Muestra `r colnames(datos_Met_def[3])`:
+```{r}
+#Método con la función missing_values:
+tabla_mv_Met_M[3,]
+#Método 1:
+sum(is.na(datos_Met[,3]))*100/nrow(datos_Met)
+#Método 2:
+a<-datos_Met[,3]
+a<-na.omit(a)
+(nrow(datos_Met)-length(a))*100/nrow(datos_Met)
+```
+
+* Muestra `r colnames(datos_Met_def[4])`:
+```{r}
+#Método con la función missing_values:
+tabla_mv_Met_M[4,]
+#Método 1:
+sum(is.na(datos_Met[,4]))*100/nrow(datos_Met)
+#Método 2:
+a<-datos_Met[,4]
+a<-na.omit(a)
+(nrow(datos_Met)-length(a))*100/nrow(datos_Met)
+```
+
+Como se puede ver en todos los casos coinciden los resultados por lo que la función `missing_values` funciona correctamente.
+
+A continuación se visualizarán mediante un boxplot:
+
+```{r}
+boxplot(tabla_mv_Met_M, col="light blue", ylab="Porcentaje de Missing Values")
+```
+
+En un boxplot la raya negra de la caja representa la mediana o segundo quantil(50% de los datos), las rayas superior e inferior que dan forma a la caja son el primer(25%) y tercer quantil(75%).  Las líneas negras de fuera de la caja son el porcentaje de missing values máximo (línea superior) y mínimo (línea inferior) sin tomar en cuenta los datos atípicos.[] Éstos últimos se dibujan con circulos.
+
+_lantz-ML_
+
+* **Visualización de la distribución del porcentaje de missing values por probe.**
+
+Se calculan los missing values por gen con la función:
+```{r}
+tabla_mv_Met_V<-data.frame(missing_values(datos_Met, 1, ncol(datos_Met)))
+colnames(tabla_mv_Met_V)<-"porcentaje"
+head(tabla_mv_Met_V)
+```
+Como si hay missing values se graficarán con un boxplot más adelante para estudiar a partir de que porcentaje se deben eliminar las variables.
+
+
+```{r}
+boxplot(tabla_mv_Met_V, col="gold",  ylab="Porcentaje de Missing Values")
+```
+
+Se van a eliminar todas las variables que tengan missing values, ya que se dispone de poco tiempo, además de que la capacidad computacional del equipo que se está utilizando en el TFM no permite realizar imputación de datos, y para la integración se usará un servicio de máquina virtual en un servidor externo.
+
+En caso de poder realizar imputación de datos lo ideal sería eliminar las variables de más de un 10% de Missing Values como indica el manual de Amaretto[], o un 70% como indican [;], o cualquier un porcentaje entre ellos, lo importante es probar y seleccionar el porcentaje del filtrado de datos que más se ajuste a los datos de trabajo, para obtener los mejores resultados. A la hora de imputar, en la bibliografía se recomienda K-nearest neighbors(KNN), que se puede aplicar con el paquete `yaimpute`[] o bien con la función `preProcess` del paquete `caret`. Es importante tener en cuenta que para aplicar KNN se centra($x_{ij}-\mu_i$) y escala($x_{ij}/\sigma_i$) los datos. Para aplicar KNN con caret es importante que haya pocos missing values porque necesita por lo menos k vecinos cercanos, sin missing values cada vez que va a imputar un dato.
+
+_https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6949097/_
+https://bmcmedgenomics.biomedcentral.com/articles/10.1186/s12920-021-00876-4
+https://cran.r-project.org/web/packages/yaImpute/citation.html
+https://www.rdocumentation.org/packages/caret/versions/6.0-86/topics/preProcess
+
+* *Eliminación de Missing Values*
+
+Para eliminar los Na se usará la función NA omit:
+
+```{r}
+datos_Met<-na.omit(datos_Met)
+datos_Met[1:5,1:3]
+```
+
+Se observa que se han eliminado los missing values.
+

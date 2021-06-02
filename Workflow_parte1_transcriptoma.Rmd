@@ -1,0 +1,759 @@
+---
+title: "Workflow parte1"
+output: pdf_document
+---
+
+## Indice.
+
+1. **Preparación del entorno de trabajo.**
+  * 1.1. _Preparación del entorno._
+  * 1.2. _Carga de paquetes a utilizar._
+2. **Descarga de datos.**
+3. **Filtrado de muestras: 
+  * 3.1 _Missing Values_
+  * 3.2 _Eliminación de genes poco expresados__
+4. **Transformación logaritmica y Control de calidad**
+5. **Filtrado biológico para integración**
+  * 5.1 _Análisis de expresión diferencial significación 0.25_
+  * 5.2 _Seleción del 30% de Top genes_
+6. **Análisis de expresión diferencial significación 0.05**
+7. **Visualización de resultados**
+
+
+## Preparación del entorno de trabajo:
+
+### 1.1. Preparación del entorno:
+
+Lo primero que hacemos es definir en el chunk el atributo cache=TRUE, para que R guarde los resultados de los chunks y solo repita la ejecución de un chunk, y de los otros chunks que se vean afectados por dicho cambio cuando se cambie el código en el chunk.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = NULL, cache = TRUE)
+```
+
+Ahora definimos nuestro directorio:
+```{r}
+setwd("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow")
+```
+
+### 1.2. Carga de paquetes a utilizar.
+
+Ahora se va a cargar los paquetes que vamos a utilizar y que explicaremos según se vayan requiriendo:
+
+```{r message=FALSE, warning=FALSE}
+library(edgeR)
+library(limma)
+library(gplots)
+library(ggplot2)
+library(ggrepel)
+library(RColorBrewer)
+library(dichromat)
+```
+
+Esta parte del Workflow está basada en Law GW et al[] y Mo Q et al[].
+https://f1000research.com/articles/5-1408
+https://www.nature.com/articles/s42003-020-01491-2#Sec10
+## 2.Descarga de datos.
+
+Se cargarán en el enviroment los datos de RNAseq normalizados y transformados en $log_2(FPKG)$ de Firehose obtenidos directamente de la web. Esto se debe a que el paquete `curatedTDGAData` no descarga todos los datos disponibles ni descarga los datos de muestras normales necesarias para el filtrado biológico de los datos de expresión. Por otra parte, el link del paquete `RTCGAToolbox` para RNAseq no funciona. Con lo cual queda usar los datos directamente descargados de la web.
+
+
+Se cargaron usando la función `read_delim` del paquete `readr`. Como se encuentra en el mismo directorio del papeline no fue necesario indicar la ruta. Los atributos indicados fueron:
+
+* `file`: nombre del documento o ruta. 
+* `delim`: tipo de separación entre los valores, en este caso, tab `\t`
+
+```{r message=FALSE, warning=FALSE}
+datos_mRnaseq<-readr::read_delim("COAD.uncv2.mRNAseq_RSEM_all.txt","\t")
+datos_mRnaseq[1:5,1:5]
+```
+
+En este archivo vienen ya mapeados y normalizados en cuanto a logitud de genes los transcritos secuenciados con RNAseq por cada gen. Están anotados en FPKM. Además, en la primera columna está anotado el "Gene Symbol" o Símbolo oficial del gen y el "gen_ID" o identificador del gen de Entrez Gene, separados por el caracter "|".
+
+https://bioconductor.org/packages/release/data/annotation/manuals/org.Hs.eg.db/man/org.Hs.eg.db.pdf
+
+Para que todas las ómicas tengan el mismo identificador y se facilite el posterior filtrado de metiloma vamos a seleccionar como rownaames los "Gene Symbol", y se eliminará aquellos genes que no esté anotado su "Gene Symbol".   
+
+Para ello se guardan las anotaciones de la columna "Hybridization REF" en una matriz llamada "names".
+
+```{r}
+names<-as.matrix(datos_mRnaseq[,1])
+head(names)
+```
+
+https://r4ds.had.co.nz/strings.html?q=str_split#splitting
+https://www.rdocumentation.org/packages/stringr/versions/0.6.2/topics/fixed
+https://stackoverflow.com/questions/31585111/regular-expression-error-when-using-stringr-r-package-to-search-for-curly-brac
+
+A continuación en cada fila de la unica columna de "names" se separa el string en dos partes por el caracter "|". Para ello se usa la función `str_split` del paquete `stringr`. Como "|" no es un caracter normal, sino que se considera una "regular expression" es necesario que se indique el caracter de separación "|" afectado por la función `fixed` también del paquete `stringr`. Para que se guarde en una matriz se debe indicar el atributo `simplify=TRUE`. Finalmente se guardará como data frame con `as.data.frame` para poder añadir los resultados al data frame final datos_mRNAseq.
+
+```{r}
+names<-as.data.frame(stringr::str_split(names, stringr::fixed("|"), simplify =TRUE))
+colnames(names)<-c("Gene_Symbols", "Entrez_ID")
+head(names)
+```
+
+```{r}
+datos_mRnaseq<-cbind(names$Gene_Symbols, datos_mRnaseq[,2:501])
+datos_mRnaseq[15:19,1:5]
+```
+
+Ahora se eliminará aquellas filas que tengan un "?" como "Gene Symbol".
+
+```{r}
+datos_mRnaseq<-datos_mRnaseq[datos_mRnaseq$`names$Gene_Symbols`!="?",]
+datos_mRnaseq[1:5,1:5]
+```
+
+A continuación, se convertirá los "Gene Symbols" en los nombres de las filas y se eliminará la primera columna de datos_mRnaseq, para que no de problemas en el resto de pasos de este análisis, ya que se tomaría la primera columna como una muestra con datos de counts. 
+
+Para guardar los datos de gene_ID como vector primero es necesario convertir la
+columna extraida del data frame en una matriz.
+```{r}
+row_n<-as.vector(datos_mRnaseq[, 1])
+head(row_n)
+```
+Se comprueba que no haya Gene Symbols repetidos:
+
+```{r}
+length(row_n)==length(unique(row_n))
+```
+
+Como se ve hay porlo menos un gen repetido, así que se debe ver cual es y si tiene las mismas medidas:
+```{r}
+a<-as.data.frame(table(factor(row_n)))
+a[a$Freq>1,]
+```
+```{r}
+rm(a)
+```
+
+Se observa que el gen SLC35E2 se ha anotado dos veces, veamos si también tiene el mísmo código Entrez_Gene:
+
+```{r}
+names[names$Gene_Symbols=="SLC35E2",]
+```
+
+No tienen el mismo código dde entrez gene por lo que no es una duplicación, así que se tratarán como independientes.
+
+Ahora se guarda datos_mRnaseq sin la primera columna.
+```{r}
+datos_mRnaseq<-datos_mRnaseq[,2:501]
+datos_mRnaseq[1:5,1:2]
+```
+
+Finalmente, se da nombre a las filas, para ello primero se tiene que hacer es transformar datos_mRnaseq en un data frame normal, ya que de firehose se descarga en formato tibble, que es un tipo especial de data frame usado en ciencia de datos que no acepta que las filas tengan nombre, y que no es el usado por iClusterBayes.
+Se usa unique=TRUE para que se le ponga un número diferencial a las filas con el mismo nombre.
+
+https://tibble.tidyverse.org/
+```{r}
+datos_mRnaseq<-as.data.frame(datos_mRnaseq)
+rownames(datos_mRnaseq)<-make.names(row_n, unique=TRUE)
+datos_mRnaseq[1:5,1:2]
+```
+
+## 3. Filtrado de datos:
+
+### 3.1. Filtrado de Missing Values:
+
+Lo primero que se hará será crear una función `missing_values` que calcule el porcentaje de missing values por cada columna o fila, para poder observar la calidad de los datos antes del filtrado.
+
+La función creada llamará a la función `apply` que aplica por fila o columna de la matriz el cálculo que se le indique. `apply` tiene tres atributos:
+
+* x: matriz sobre la que realizarán los cálculos.
+* Margin: si `apply` se ejecuta por fila se le indica un "1" y si es por columna se indica un "2".
+* FUN: a `apply` hay que darle una función o un cálculo para que ejecute. 
+
+En la función `missing_values` se llamará a `apply` a la vez que se convierte en matriz, con `as.matrix`, la base de datos de la que se quiere obtener los porcentajes de missing values. La función que aplicará `apply` sumará con `sum` todos los _NA_ de la fila o columna, a los que reconocerá con la función `is.na`. Como `is.na` debe tener un vector, "y" sobre el que ejecutarse, se debe definir una función interna en la que "y" será la fila o columna sobre la que se está ejecutando `apply`.  Una vez que la función sume los _NA_ calculará el porcentaje multiplicando por 100 y dividiendo por el número de columnas o filas dependiendo del caso. Los atributos a indicar a `missing_values` serán:
+
+* `data`: data frame a partir de la cual se realizarán los cálculos.
+* `dimention`: 1 si el porcentaje de missing values es por fila, variable. 2 si el porcentaje de missing values es por columna, muestra.
+* `total`: si `dimention=1` se indicará `ncol(data)`, es decir, el número de columnas, muestras, para las que se ha medido dicha variable. si `dimention=2` se indicará `nrow(data)`, es decir, el número de filas, variables, que se han medido para dicha muestra.
+
+https://stackoverflow.com/questions/24027605/determine-the-number-of-na-values-in-a-column
+https://www.rdocumentation.org/packages/base/versions/3.6.2/topics/apply
+https://www.rdocumentation.org/packages/ursa/versions/3.9.2/topics/is.na
+
+```{r}
+missing_values<-function(data, dimention, total){
+  db<-apply(as.matrix(data), dimention, function(y) sum(is.na(y))*100/total)
+}
+```
+Se probará la función en Workflow_parte2_Metiloma porque el metiloma si tiene valores NA, los datos de RNAseq que se van a usar como veremos a continuación no tienen valores NA.
+
+* **Porcentaje de Missing Values en muestras**
+
+```{r}
+tabla_mv_mRNA_m<-data.frame(missing_values(datos_mRnaseq, 2, nrow(datos_mRnaseq)))
+colnames(tabla_mv_mRNA_m)<-"porcentaje"
+head(tabla_mv_mRNA_m)
+```
+
+Se comprueba la distribución de missing values:
+
+```{r}
+boxplot(tabla_mv_mRNA_m, col="gold",  ylab="Porcentaje de Missing Values")
+```
+ 
+* **Porcentaje de Missing Values en genes**
+
+```{r}
+tabla_mv_mRNA_m<-data.frame(missing_values(datos_mRnaseq, 1, ncol(datos_mRnaseq)))
+colnames(tabla_mv_mRNA_m)<-"porcentaje"
+head(tabla_mv_mRNA_m)
+```
+
+Se comprueba la distribución de missing values:
+
+```{r}
+boxplot(tabla_mv_mRNA_m, col="gold",  ylab="Porcentaje de Missing Values")
+```
+```{r}
+rm(tabla_mv_mRNA_m)
+```
+
+### Eliminación de genes poco Expresados
+
+Para ello se deberá calcular cuantras muestras hay en cada grupo.
+
+Para obtener las muestras patológicas lo primero que se debe hacer es guardar en un vector "names" los códigos de referencia, y posteriormente extraer de cada código el fragmento que nos indica el tipo de muestra. Para ello se usa la función `str_sub` del paquete `stringr`, y se indica que los caracteres que nos interesan empiezan en la posición 14 y terminan en la 15, por tanto, son los dos caracteres de la región "Sample" del código de referencia. 
+
+```{r}
+names<-as.vector(colnames(datos_mRnaseq))
+names<-stringr::str_sub(names, start =14 , end = 15)
+names[7:10]
+```
+
+Se observa, en las muestras de las posiciones 7-10 del vector, que hemos extraido las regiones de interes, se eligieron estas posiciones porque se ven dos posibles códigos "01" y "11".
+
+```{r}
+datos_mRnaseq[1:5, 7:10]
+```
+
+Se ve los posibles tipos de muestras.
+
+```{r}
+table(names)
+```
+
+Ahora eliminaremos las muestras 02 y 06 ya que solo se va usar para el filtrado los datos normales "11" y los de tumor primario "01". Y en el estudio de prognosis no se tendrá en cuenta recidivas, "02" ni metástasis "06" porque solo se cuenta con 2 muestras. Para eliminarlas se guarda un vector Booleano "TP" que anote TRUE cada vez que aparezca un "01" y "11".
+
+```{r}
+TP<-as.vector(names=="01"| names=="11")
+TP[7:11]
+table(TP)
+```
+
+Para seleccionar las muestras que nos quedarémos se transpondrá la matriz de datos, posteriormente se le añadirá el vector "TP" y seleccionaremos quedarnos con las muestras(filas) con valor TRUE.
+
+```{r}
+dim(datos_mRnaseq)
+```
+
+```{r}
+datos_mRnaseq<-t(datos_mRnaseq)
+datos_mRnaseq<-as.data.frame(cbind(datos_mRnaseq, TP))
+datos_mRnaseq<-datos_mRnaseq[datos_mRnaseq$TP==TRUE,]
+datos_mRnaseq<-datos_mRnaseq[, 1:20502]
+datos_mRnaseq<-t(datos_mRnaseq)
+dim(datos_mRnaseq)
+```
+
+Se observa que se mantiene el número de genes pero hay dos muestras menos, por lo que se han seleccionado correctamente las muestras.
+
+A continuación, se filtrarán los genes que tengan un número de FPKM 0 en un número X de muestras (el valor de X se estudiará a continuación) ya que no aportan información. Para ello primero se van a visualizar si realmente hay genes anotados en RNAseq con 0 FPKG:
+
+```{r}
+table(rowSums(datos_mRnaseq==0)==498)
+```
+
+Se ve que hay 231 genes que no se han expresado en ninguna muestra.
+
+Para estudiar el valor de X muestras para las que el gen tenga valor 0 que permita que se elimine dicho gen se obtendrá una tabla con valores TRUE cada vez que hay un FPKM de valor 0.
+```{r}
+boolean_table<-datos_mRnaseq==0
+boolean_table[1:5, 1:5]
+```
+
+Se visualizará la distribución de los genes en función de su FPKM=0.
+```{r}
+a<-table(rowSums(boolean_table))
+plot(a,xlab="Número de muestras con FPKG=0",ylab="Genes",col="gold")
+abline(v=41, col="blue")
+```
+La línea azul indica cuantas muestras normales hay, aunque lo que se grafica cuantos genes hay con valor 0 en X muestras la línea azul ayuda a ver cuantos genes se pueden eliminar porque su valor 0 no se deba a que pertenecen al grupo normal o al patológico. La diferencia de muestras entre ambos grupos, y el que lo que nos interesen sean los datos para prognosis hace que no podamos filtrar los genes según si tienen valor 0 en más muestras que el número de muestras del grupo más pequeño(normal).  
+
+A continuación se visualiza los genes con número de FPKM=0 en más muestras. Se hizo una línea roja en el número de muestras en la que hay un salto con más genes con valores 0.
+```{r}
+plot(a[400:498],xlab="Número de muestras con FPKG=0",ylab="Genes",col="gold")
+abline(v=493, col="red")
+```
+
+Se ve que hay un salto de número de muestras con FPKG=0 a partir de 493 muestras, para evitar eliminar un subtipo de COAD con pocas muestras se va a estudiar el valor de FPKM en las muestras que no valen 0 a partir 
+
+```{r}
+datos_mRnaseq<-as.data.frame(datos_mRnaseq)
+keep <- rowSums(boolean_table) > 492 & rowSums(boolean_table)!=498
+prueba<-datos_mRnaseq[keep,]
+nrow(prueba)
+```
+Se comprueba que se haya seleccionado los genes correctos:
+```{r}
+a<-as.data.frame(a)
+sum(a$Freq[493:497])
+```
+
+```{r}
+boxplot(t(prueba), ylab="FPKM", col="light blue", )
+# Se añade una línea horizonta que corresponde con la mediana de counts.
+abline(h=median(as.matrix(prueba)),col="blue")
+title("Boxplots of FPKM")
+```
+Se observa que hay algunos genes con FPKG elevado en alguna muestra pero como parece que no hay ningún gen en el que ocurra en más de una muestra, al final vamos a eliminar todos aquellos genes con valor 0 en más de 492 muestras.
+
+```{r}
+keep <- rowSums(boolean_table) < 492
+datos_mRnaseq<-datos_mRnaseq[keep,]
+dim(datos_mRnaseq)
+```
+
+```{r}
+rm(prueba)
+rm(a)
+rm(boolean_table)
+rm(TP)
+rm(names)
+rm(row_n)
+rm(keep)
+```
+
+
+## 4. Transformación logarítmica y Control de calidad:
+
+Para estudiar y mejorar la calidad de los datos se transformarán a escala logarítmica. Antes de ello se le sumará 1 RPKM a cada gen en cada muestra para que al transformar a logaritmo los valores 0 o valores menores que 1 no de valores -inf,, debido a que el log2(0) no existe, o negativos. Al darle valor de 1 su logaritmo será 0, por tanto no tendrán expresión. Esta transformación es semejante a la que hace la función `CPM(,log=TRUE)`, $log_2(CPM+0.5)$, del paquete `edgeR` o `voom` de `limma` solo que se sumará 1 porque en este dataset se tienen valores 0.
+
+
+```{r}
+log_scale<-datos_mRnaseq
+log_scale<-apply(log_scale,c(1,2), function(y){y=y+1})
+log_scale[1:5,4:6]
+```
+
+Comparamos el resultado con los valores originales: 
+```{r}
+datos_mRnaseq[1:5,4:6]
+```
+
+A continuación, se guarda los valores modificados y se calcula el logaritmo a los datos.
+```{r}
+log_scale<-as.data.frame(apply(log_scale,2, function(y){log(y)}))
+log_scale[1:5,4:6]
+```
+
+A continuación, se verá la calidad de los datos mediante boxplots, estos datos se cargaron ya normalizados los FPKM que toman en cuenta el tamaño de los genes para normalizarlos. Al calcular la escala logaritmica también se aumenta la normalización de los datos ya que adoptan una misma escala.
+
+```{r}
+boxplot(log_scale[,1:100], ylab="log2(FPKM)", col="light blue" )
+# Se añade una línea horizonta que corresponde con la mediana de FPKG.
+abline(h=median(as.matrix(log_scale)),col="blue")
+title("Boxplots of log2(FPKM)")
+```
+```{r}
+boxplot(log_scale[,101:200], ylab="log2(FPKM)", col="light blue" )
+# Se añade una línea horizonta que corresponde con la mediana de FPKG.
+abline(h=median(as.matrix(log_scale)),col="blue")
+title("Boxplots of log2(FPKM)")
+```
+
+```{r}
+boxplot(log_scale[,201:300], ylab="log2(FPKM)", col="light blue" )
+# Se añade una línea horizonta que corresponde con la mediana de FPKG.
+abline(h=median(as.matrix(log_scale)),col="blue")
+title("Boxplots of log2(FPKM)")
+```
+```{r}
+boxplot(log_scale[,301:400], ylab="log2(FPKM)", col="light blue" )
+# Se añade una línea horizonta que corresponde con la mediana de FPKG.
+abline(h=median(as.matrix(log_scale)),col="blue")
+title("Boxplots of log2(FPKM)")
+```
+
+```{r}
+boxplot(log_scale[,401:498], ylab="log2(FPKM)", col="light blue" )
+# Se añade una línea horizonta que corresponde con la mediana de FPKG.
+abline(h=median(as.matrix(log_scale)),col="blue")
+title("Boxplots of log2(FPKM)")
+```
+
+Se guardará los datos transformados y filtrados hasta esta etapa para usarlos en el filtrado de Metiloma.
+
+```{r}
+datos_mRnaseq<-as.data.frame(log_scale)
+resultdir<- file.path("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow/Datos", "datos_mRNA_norm_trans.csv")
+write.csv(log_scale, resultdir, row.names = TRUE)
+```
+
+
+```{r}
+rm(log_scale)
+```
+
+## 5.Filtrado Biológico para integración:
+
+### 5.1.Análisis de expresión diferencial significación 0.25:
+
+El filtrado biológico consistirá en seleccionar aquellos genes que tienen una expresión diferencial entre las muestras normales y las patológicas. Al ser solo un filtrado se obtendrán primero los genes con una significación menor que 0.25, y posteriormente se seleccionarán el 30% de los genes con menor p-valor ajustado. No se usará el 25% de top genes porque da un número de genes para integrar mucho menor que el usado en Mo et al, y los genes seleccionados tienen un p-valor<$10^{-11}$
+
+Para ello se hará un modelo de regresión lineal con la función `lmFit` de `limma` para cada grupo donde las variables X serán los genes y la variable Y será binomial con valor 1 para uno de los grupos y 0 para el otro. Los parámetros para cada gen del modelo son los parámetros alfa. 
+
+A partir de los parámetros alfa se calculan los parámetros beta, que nos permiten realizar contrastes, que son comparaciones entre los niveles de nuestro factor para saber que genes tienen distinta expresión en esos niveles. En nuestro caso vamos a testar la H0:normales-tumorales=0, es decir, la expresión génica es igual en las muestras normales y en las tumorales. Para ello se calculará el contraste beta=alfa1-alfa2 para cada gen. Para calcular beta se usa la función `contrasts.fit` de `limma`, los valores alfa guardados en `vfit`, y la matriz de contraste guardada en cont.matrix.
+
+Finalmente, se calcula mediante bayes la probabilidad de que cada uno de esos genes no esté diferencialmente expresado, es decir, que H0 sea cierta. El resultado serán varios parámetros como fold-change, t-value y p-value ajustado FDR al 5%. Se usará la función `eBayes`.
+
+https://www.nature.com/articles/s42003-020-01491-2
+
+Para hacer el filtrado lo primero que se realizará será separar las muestras normales de las patológicas para posteriormente unirlas de nuevo pero que estén juntas por condición, lo que facilitará hacer los grupos de muestras y la posterior selección de las muestras patológicas. Para el filtrado se usarán los datos sin transformar logaritmicamente porque el objeto DGEList no los acepta, sin embargo los datos filtrados se volverán a transformar logaritmicamente porque iClusterBayes si los acepta.
+
+Lo primero que se hace es crear un vector con la parte de los códigos de referencia que diferenctia las muestras tumorales "01" de las normales "10":
+
+```{r}
+names<-as.vector(colnames(datos_mRnaseq))
+names<-stringr::str_sub(names, start =14 , end = 15)
+names[7:10]
+```
+
+Ahora se crea un vector que indique en cada posición si es TRUE es una muestra tumoral y si es FALSE es normal.
+```{r}
+TP<-as.vector(names=="01")
+TP[7:10]
+table(TP)
+```
+
+
+Para seleccionar las muestras que nos quedarémos se transpondrá la matriz de datos, posteriormente se le añadirá el vector "TP" y seleccionaremos quedarnos con las muestras(filas) con valor TRUE en un nuevo data frame de muestras tumorales "tumorales" y las de valor FALSE en un data frame "normales".
+
+```{r}
+datos_mRnaseq<-t(datos_mRnaseq)
+datos_mRnaseq<-as.data.frame(cbind(datos_mRnaseq, TP))
+tumorales<-t(datos_mRnaseq[datos_mRnaseq$TP==TRUE,])
+normales<-t(datos_mRnaseq[datos_mRnaseq$TP==FALSE,])
+datos_mRnaseq<-as.data.frame(cbind(normales,tumorales))
+dim(datos_mRnaseq)
+```
+
+```{r}
+datos_mRnaseq[1:5, 40:43]
+```
+
+Finalmente se elimina la última fila TP:
+```{r}
+datos_mRnaseq<-datos_mRnaseq[1:19804,]
+```
+
+Ahora se creará un vector con los grupos, a los que pertenecen para usarlo al crear el objeto DGEList necesario para usar limma.
+
+```{r}
+TP<-c(rep("normal", 41), rep("tumoral", 457))
+```
+
+Se comprueba que es correcto:
+```{r}
+rm(names)
+TP[40:43]
+```
+
+Como es correcto ya se puede proceder a crear el objeto DGEList usando la función `DGEList` del paquete `edgeR`, para ello hay que indicar un set de datos y un vector que indique a que grupo pertenece cada muestra.
+
+```{r message=FALSE, warning=FALSE}
+datos<- DGEList(counts=datos_mRnaseq, group=TP)
+datos$samples[40:43,]
+```
+
+El lib.size es el número total de FPKM por muestra y norm.factor sería el factor de normalización por el que se multiplicó cada muestra al normalizarla, en este caso se mantendrá como 1 en todas las muestras porque ya se han cargado normalizadas.
+
+La matriz de diseño se crea para clasificar las muestras a usar en el ajuste del modelo del experimento que se desea, en este caso queremos observar la diferencia de expresión entre muestras normales y tumorales de COAD. En la matriz de diseño que crearemos los niveles serán los grupos ("1" y “2”) serán las columnas, y las muestras a comparar serán las filas. Según a que nivel(grupo) pertenezca la muestra, se pondrá un 1 en la colunma del nivel al que pertenezca, y 0 en el otro nivel.
+
+Para crear la matriz para nuestro modelo primero tenemos que crear los niveles que vamos a comparar.
+
+```{r}
+grupo<- factor(TP)
+levels(grupo)
+```
+
+Ahora, vamos a crear la matriz de diseño mediante la función model.matrix:
+
+```{r}
+design <- model.matrix(~ 0 + grupo)
+design[40:43,]
+```
+
+Ahora renombramos las columnas y filas:
+
+```{r}
+colnames(design) <- levels(grupo)
+rownames(design) <- colnames(datos_mRnaseq)
+design[40:43,]
+```
+
+A continuación se crea la matriz de contraste que indica el modelo que se quiere contrastar, es decir se quiere conocer la diferencia de expresión entre las muestras normales y las tumorales:
+```{r}
+contr.matrix <- makeContrasts(
+NormVSTum = normal-tumoral,
+levels = colnames(design))
+contr.matrix
+```
+
+En la matriz de contraste se da un valor de 1 a alfa1 y de -1 a alfa2, estos valores serán sustituidos por los verdaderos valores de alfa1 y alfa2 cuando se calcule beta. Esto se hará por cada gen.
+
+A continuación, se calculará los modelos de regresión mediante `lmFit`:
+
+```{r}
+vfit <- lmFit(datos_mRnaseq, design)
+```
+
+A partir de los modelos de regresión para cada grupo de muestras se obtienen los parámetros, valores alfa, de cada gen, variable X. 
+
+Ahora se calculan los parámetros beta:
+
+```{r}
+cfit <- contrasts.fit(vfit, contr.matrix)
+```
+
+Después se calculan los p-valores:
+
+```{r}
+efit <- eBayes(cfit)
+```
+
+Finalmente con la función `decideTest`, indicandole el nivel de significación que queremos, que en este caso es 0.25, ya que solo deseamos filtrar los genes y necesitamos un número elevado de genes para la integración.  Esta función lo que hace es crear una tabla con posibles valores, para cada gen, de -1(genes con expresión reprimida en células tumorales), +1(genes con expresión elevada  en células tumorales) y 0(genes con misma expresión en ambas condiciones). Se otorgará cada valor comparando el p-valor obtenido con Bayes y el nivel de significación.
+
+
+```{r}
+genes_filtrado<-decideTests(efit, p.value = 0.25)
+res_filt<-as.data.frame(summary(genes_filtrado))
+res_filt
+```
+Se observa los genes que se reduce la expresión en las muestras tumorales(Down), los que se expresan igual(NotSig), y los que han aumentado su expresión en muestras tumorales(Up).
+
+Ahora se guardan los resultados completos con sus p-valores:
+
+```{r}
+write.fit(vfit, genes_filtrado, file="genes_filtrado.txt")
+```
+
+También se guardan los genes diferencialmente expresados con sus log(FPKM) para luego elegir el 30% más significativos. 
+
+```{r}
+dif_GE_filt<- which(genes_filtrado[,1]!=0)
+GE_filt<-datos_mRnaseq[dif_GE_filt,]
+```
+
+### 5.2 Seleción del 30% de Top genes
+
+Ahora se guardará, como datos filtrados para la integración, el 30% de los genes expresados diferencialemte más significativos(menor p-valor ajustado), con sus log(FPKM), para ello se usará la función `topTable` de `limma`. 
+
+Lo primero es calcular cuantos genes son el 30% de los genes diferencialmete expresados. Se obteniendo el total de genes diferencialmente expresados y calculando su porcentaje:
+
+```{r}
+dif_exp<-res_filt[1,3]+res_filt[3,3]
+dif_exp
+```
+
+```{r}
+topgenes<-round((dif_exp*30)/100)
+topgenes
+```
+
+Ahora con `topTable` se ordenan los genes de menor a mayor p-valor ajustado y se selecciona el número de genes con menor p-valor que le indiquemos, en este caso `r topgenes`.
+
+```{r}
+dif_exp<-res_filt[1,3]+res_filt[3,3]
+dif_exp
+```
+
+```{r}
+topgenes<-round((dif_exp*30)/100)
+topgenes
+```
+
+```{r}
+top_genes_filt<-topTable(efit, coef="NormVSTum", sort.by = "p", number = topgenes)
+head(top_genes_filt)
+```
+
+A continuación, guardamos en un dataframe los Top Genes y sus correspondientes $log_2(FPKM)$:
+
+```{r}
+selec_filt<-rownames(top_genes_filt)
+filt<-rownames(GE_filt)
+selec_pos<-vector()
+for (i in 1:length(selec_filt)){
+  for (j in 1:length(filt)){
+    if (selec_filt[i]==filt[j]){
+      selec_pos<-c(selec_pos, j)
+    }
+  }
+}
+selec_top_genes<-GE_filt[selec_pos,]
+```
+
+Se observa que son los mismos primeros genes que los obtenidos con `topTable`
+```{r}
+selec_top_genes[1:6, 1:3]
+```
+
+Por tanto, se han seleccionado correctamente.
+
+Finalmente, se guardan los Top genes diferencialmente expresados a usar en la integración con sus datos, pero solo las muestras patológicas:
+
+```{r}
+resultdir<- file.path("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow/Datos", "Top_genes.csv")
+write.csv(selec_top_genes[,42:498], resultdir, row.names = TRUE)
+```
+
+```{r}
+rm(GE_filt)
+rm(genes_filtrado)
+```
+
+
+## 6.Análisis de expresión diferencial significación 0.05
+
+Expresión diferencial para la ómica de forma independiente a un nivel de significación de 0.05. 
+
+```{r}
+genes_trans<-decideTests(efit, p.value = 0.05)
+(res<-as.data.frame(summary(genes_trans)))
+```
+
+Ahora se guardan los resultados completos con sus p-valores:
+
+```{r}
+write.fit(vfit, genes_trans, file="genes_transcriptomica.txt")
+```
+
+También se guardan los genes diferencialmente expresados con sus log(FPKM) para luego elegir el 30% más significativos. 
+
+```{r}
+dif_GE_trans<- which(genes_trans[,1]!=0)
+GE_trans<-datos_mRnaseq[dif_GE_trans,]
+```
+
+Se aelecciona los Top genes al 30%:
+
+```{r}
+dif_exp<-res[1,3]+res[3,3]
+dif_exp
+```
+
+```{r}
+topgenes<-round((dif_exp*30)/100)
+topgenes
+```
+
+```{r}
+top_genes_trans<-topTable(efit, coef="NormVSTum", sort.by = "p", number = topgenes)
+head(top_genes_trans)
+```
+
+A continuación, se guarda en un dataframe los Top Genes y sus correspondientes $log_2(FPKM)$:
+
+```{r}
+selec_trans<-rownames(top_genes_trans)
+trans<-rownames(GE_trans)
+selec_pos<-vector()
+for (i in 1:length(selec_trans)){
+  for (j in 1:length(trans)){
+    if (selec_trans[i]==trans[j]){
+      selec_pos<-c(selec_pos, j)
+    }
+  }
+}
+selec_top_genes<-as.data.frame(GE_trans[selec_pos,])
+```
+
+Se observa que son los mismos primeros genes que los obtenidos con `topTable`
+```{r}
+selec_top_genes[1:6, 1:3]
+```
+
+
+## 7.Visualización de resultados:
+
+### PCA:
+
+El PCA o Análisis de Componentes Principales es un método muy conocido para encontrar estructuras lineales de poca densidad dentro de bases de datos con gran densidad, es decir, muchas variables caracterizadoras. No significa que nos quedemos con menos variables, sino que generamos las mejores combinacionesde variables que dan lugar a una reducción de las dimensiones.
+
+Solo los primeros componentes principales representan la mayor variabilidad entre las observaciones, por lo que nos quedamos con el número de componentes que contenga la mayor información. Solo se recomienda no estandarizar si todas las variables tienen escalas semejantes, como es nuestro caso ya que se transformó los datos a escala logarítmica.
+
+Rafael A. Irizarry, Michael I. Love. Data Analysis for the Life Sciences with R. Chapman and HallCRC
+
+Se ha usado la función extraida del libro Sanz et al[]:
+
+Gonzalo Sanz, Ricardo, and Alex Sánchez-Pla. 2019. “Statistical Analysis of Microarray Data.” In Microarray Bioinformatics, edited by Verónica Bolón-Canedo and Amparo Alonso-Betanzos, 87–121. New York, NY: Springer New York. https://doi.org/10.1007/978-1-4939-9442-7_5.
+
+
+```{r message=FALSE, warning=FALSE}
+plot_PCA <- function (datos,labels, factor, title, scale,colores, size = 1.5, glineas = 0.25) {
+  data <- prcomp(t(datos),scale=scale)
+# plot adjustments
+  dataDf <- data.frame(data$x)
+  Group <- factor
+  loads <- round(data$sdev^2/sum(data$sdev^2)*100,1)
+# main plot
+  p1 <- ggplot(dataDf,aes(x=PC1, y=PC2)) +
+  theme_classic() +
+  geom_hline(yintercept = 0, color = "gray70") +
+  geom_vline(xintercept = 0, color = "gray70") +
+  geom_point(aes(color = Group), alpha = 0.55, size = 3) +
+  coord_cartesian(xlim = c(min(data$x[,1])-5,max(data$x[,1])+5)) +
+  scale_fill_discrete(name = "Group")
+  # avoiding labels superposition
+  p1 + geom_text_repel(aes(y = PC2 + 0.25,label = labels),segment.size = 0.25, size = size) +
+  labs(x = c(paste("PC1",loads[1],"%")),y=c(paste("PC2",loads[2],"%"))) +
+  ggtitle(paste("Principal Component Analysis for: ",title,sep=" "))+
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scale_color_manual(values=colores)
+}
+  plot_PCA(selec_top_genes, labels = colnames(selec_top_genes),factor = grupo,
+  title="Expresión diferencial", scale = FALSE, size = 3,
+  colores = c("purple", "orange"))
+```
+Parece que hay tres subtipos de COAD según la expresión diferencial, de los tres hay un subtipo bastante predominante.
+
+### Heatmap:
+
+Se grafica muestras frente a variables(genes). Los datos graficados son los niveles de expresión transformados a z-scores(datos con media 0 y varianza 1; obtenidos restándole a cada dato la media de su variable y dividiendo el resultado por la desviación estándar de la misma) y ordenados calculando la correlación entre las muestras y características de forma que se agrupen, por un lado, las muestras y variables de mayor nivel de log(FPKG) en cada caso, y por otro, las de menor nivel. Esto permite observar los posibles clusters o subtipos de muestras y elegir que modelo genera los mejores clusters.
+
+https://online.stat.psu.edu/stat555/node/87/
+lantz
+
+Veremos primero un heatmap con 500 genes diferencialmente expresados, estos genes estarán tanto en los genes filtrados para usarlos en la integración como para los que se han obtenido con un nivel de significación menor a 0.05. Solo se observarán 100 muestras porque en realidad el observar estos resultados de diferencia de expresión entre individuos normales y con tumor no es nuestro mayor interes en el estudio.
+```{r}
+## Seleccionamos una gama de colores:
+mypalette <- brewer.pal(11,"RdYlBu")
+#Hacemos que los colores sean continuos para poder graficar mejor la diferencia 
+#expresión génica.
+morecols <- colorRampPalette(mypalette)
+# Creamos un vector con los colores que le daremos a las muestras según el grupo
+#al que pertenezcan
+col_muestra <- c("purple","orange")[grupo]
+```
+
+Se procede a realizar el heatmap:
+
+```{r message=FALSE, warning=FALSE}
+selec_top_genes<-as.matrix(selec_top_genes)
+heatmap.2(selec_top_genes[1:500,],labCol=grupo, col=morecols,trace="none", 
+          main="Top 500 most variable genes across samples",
+          ColSideColors=col_muestra,scale="row")
+```
+
+A simple vista con el heatmap es difícil diferenciar los subtipos dentro del grupo de muestras patológicas, aún así se ve más claramente que parecen haber por lo menos tres subtipos de COAD. 
+
+
+
+
+
+
+
+
