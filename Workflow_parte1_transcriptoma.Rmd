@@ -390,7 +390,7 @@ rm(log_scale)
 
 ## Análisis de expresión diferencial:
 
-El filtrado biológico consistirá en seleccionar aquellos genes que tienen una expresión diferencial entre las muestras normales y las patológicas. Para no perder demasiados genes y que no se obtengan buenos resultados en la integración, se guardará aquellos genes con una significación menor que 0.25 como indica Mo Q et al[].
+El filtrado biológico consistirá en seleccionar aquellos genes que tienen una expresión diferencial entre las muestras normales y las patológicas. Para no perder demasiados genes y que no se obtengan buenos resultados en la integración, se guardará aquellos genes con una significación menor que 0.10. No se hará con 0.25 de nivel de significación como indica Mo Q et al[] por falta de tiempo para realizar la integración con todos esos datos.
 
 Para ello se hará un modelo de regresión lineal con la función `lmFit` de `limma` para cada grupo donde las variables X serán los genes y la variable Y será binomial con valor 1 para uno de los grupos y 0 para el otro. Los parámetros para cada gen del modelo son los parámetros alfa. 
 
@@ -496,7 +496,7 @@ En la matriz de contraste se da un valor de 1 a alfa1 y de -1 a alfa2, estos val
 A continuación, se calculará los modelos de regresión mediante `lmFit`:
 
 ```{r}
-vfit <- lmFit(v, design)
+vfit <- lmFit(datos_mRnaseq, design)
 ```
 
 A partir de los modelos de regresión para cada grupo de muestras se obtienen los parámetros, valores alfa, de cada gen, variable X. 
@@ -504,20 +504,20 @@ A partir de los modelos de regresión para cada grupo de muestras se obtienen lo
 Ahora se calculan los parámetros beta:
 
 ```{r}
-cfit <- contrasts.fit(vfit, contrasts=contr.matrix)
+cfit <- contrasts.fit(vfit, contr.matrix)
 ```
 
 Después se calculan los p-valores:
 
 ```{r}
-efit <- eBayes(vfit)
+efit <- eBayes(cfit)
 ```
 
-Finalmente con la función `decideTest`, indicandole el nivel de significación que queremos, que en este caso es 0.25 ya que solo deseamos filtrar los genes. Igualmente se obtendrán los significativos al 0.05 para comparar los resultados con los de iClusterBayes.
+Finalmente con la función `decideTest`, indicandole el nivel de significación que queremos, que en este caso es 0.10 ya que solo deseamos filtrar los genes. No se ha usado 0.25 como en el papeline por falta de tiempo. Igualmente se obtendrán los significativos al 0.05 para comparar los resultados con los de iClusterBayes.
 
 * _Filtrado_
 ```{r}
-genes_filtrado<-decideTests(efit, p.value = 0.25)
+genes_filtrado<-decideTests(efit, p.value = 0.10)
 summary(genes_filtrado)
 ```
 
@@ -534,20 +534,22 @@ write.fit(vfit, genes_filtrado, file="genes_filtrado.txt")
 write.fit(vfit, genes_trans, file="genes_transcriptomica.txt")
 ```
 
-Se guardará solo los nombres de los genes para seleccionar los deseados.
+Se guardará los genes con sus log(FPKM) con expresión diferencial.
 
 ```{r}
 dif_GE_filt<- which(genes_filtrado[,1]!=0)
+GE_filt<-datos_mRnaseq[dif_GE_filt,]
 dif_GE_trans<- which(genes_trans[,1]!=0)
+GE_trans<-datos_mRnaseq[dif_GE_trans,]
 ```
 
-Finalmente se guardan los nombres de los genes a usar:
+Finalmente se guardan los genes a usar con sus datos, pero solo las muestras patológicas:
 
 ```{r}
-resultdir<- file.path("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow/Datos", "dif_GE_filt.csv")
-write.csv(dif_GE_filt, resultdir, row.names = TRUE)
-resultdir<- file.path("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow/Datos", "dif_GE_trans.csv")
-write.csv(dif_GE_trans, resultdir, row.names = TRUE)
+resultdir<- file.path("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow/Datos", "GE_filt.csv")
+write.csv(GE_filt[,42:498], resultdir, row.names = TRUE)
+resultdir<- file.path("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow/Datos", "GE_trans.csv")
+write.csv(GE_trans[,42:498], resultdir, row.names = TRUE)
 ```
 
 ## Visualización de resultados:
