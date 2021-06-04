@@ -3,6 +3,13 @@ title: "Workflow parte1"
 output: pdf_document
 ---
 
+## Índice:
+
+1. **Preparación del entorno de trabajo:**
+  * 1.1. _Preparación del entorno._
+  * 1.2. _Carga de paquetes a utilizar._
+2. **Descarga de datos.**
+3. **Filtrado de missing values** 
 ## 1. Preparación del entorno de trabajo:
 
 ### 1.1. Preparación del entorno:
@@ -32,7 +39,7 @@ Los datos de GISTIC_AllGene ya se descargaron junto con los de metilación con e
 Para ello primero se cargará el archivo.csv con la función `read_csv` del paquete `readr`. Como se cargan en formato tribble se convertirán a data frame con `as.data.frame`. La primera columna son los nombres de las filas, genes, por lo que se da los valores de la primera columna a las filas con la función `rownames`, y a continuación se elimina la primera columna.
 
 ```{r message=FALSE, warning=FALSE}
-datos_CNA<-as.data.frame(readr::read_csv("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow/Datos_patologicos/datos_COAD_pat_01_COAD_GISTIC_AllByGene-20160128.csv"))
+datos_CNA<-as.data.frame(readr::read_csv("Datos_patologicos_parte2/datos_COAD_pat_01_COAD_GISTIC_AllByGene-20160128.csv"))
 rownames(datos_CNA)<-datos_CNA$X1
 datos_CNA<-datos_CNA[, -1]
 datos_CNA[1:5, 1:2]
@@ -108,4 +115,11 @@ title("Boxplots of G-scores")
 
 Se observa que a pesar de estar normalizados los datos muestran una distribución muy distinta debido a que los mismos genes no están afectados en todas las muestras, y cuando lo están no lo están de la misma forma. Por ello la normalización no es capaz de homogeneizar los datos. 
 
+Se va a guardar los datos, aunque no hayan cambiado los valores se ha renombrado las muestras, así que ahorraremos repetir el proceso.
+
+```{r}
+dir.create("Datos_parte4")
+resultdir<- file.path("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow/Datos_parte4", "CNA_GISTIC.csv")
+write.csv(datos_CNA, resultdir, row.names = TRUE)
+```
 

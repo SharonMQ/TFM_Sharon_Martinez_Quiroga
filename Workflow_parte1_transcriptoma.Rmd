@@ -9,15 +9,14 @@ output: pdf_document
   * 1.1. _Preparación del entorno._
   * 1.2. _Carga de paquetes a utilizar._
 2. **Descarga de datos.**
-3. **Filtrado de muestras: 
+3. **Filtrado de muestras.** 
   * 3.1 _Missing Values_
   * 3.2 _Eliminación de genes poco expresados__
 4. **Transformación logaritmica y Control de calidad**
 5. **Filtrado biológico para integración**
   * 5.1 _Análisis de expresión diferencial significación 0.25_
   * 5.2 _Seleción del 30% de Top genes_
-6. **Análisis de expresión diferencial significación 0.05**
-7. **Visualización de resultados**
+6. **Visualización de resultados**
 
 
 ## Preparación del entorno de trabajo:
@@ -345,7 +344,7 @@ datos_mRnaseq[1:5,4:6]
 
 A continuación, se guarda los valores modificados y se calcula el logaritmo a los datos.
 ```{r}
-log_scale<-as.data.frame(apply(log_scale,2, function(y){log(y)}))
+log_scale<-as.data.frame(apply(log_scale,2, function(y){log2(y)}))
 log_scale[1:5,4:6]
 ```
 
@@ -353,13 +352,15 @@ A continuación, se verá la calidad de los datos mediante boxplots, estos datos
 
 ```{r}
 boxplot(log_scale[,1:100], ylab="log2(FPKM)", col="light blue" )
-# Se añade una línea horizonta que corresponde con la mediana de FPKG.
+# Se añade una línea horizonta que corresponde con la mediana de log(FPKG).
+abline(v=41, col="red")
 abline(h=median(as.matrix(log_scale)),col="blue")
 title("Boxplots of log2(FPKM)")
 ```
 ```{r}
 boxplot(log_scale[,101:200], ylab="log2(FPKM)", col="light blue" )
-# Se añade una línea horizonta que corresponde con la mediana de FPKG.
+# Se añade una línea horizonta que corresponde con la mediana de log2(FPKG).
+abline(v=29, col="green")
 abline(h=median(as.matrix(log_scale)),col="blue")
 title("Boxplots of log2(FPKM)")
 ```
@@ -373,23 +374,25 @@ title("Boxplots of log2(FPKM)")
 ```{r}
 boxplot(log_scale[,301:400], ylab="log2(FPKM)", col="light blue" )
 # Se añade una línea horizonta que corresponde con la mediana de FPKG.
+abline(v=33, col="gold")
 abline(h=median(as.matrix(log_scale)),col="blue")
 title("Boxplots of log2(FPKM)")
 ```
 
 ```{r}
 boxplot(log_scale[,401:498], ylab="log2(FPKM)", col="light blue" )
+abline(v=50, col="gold")
+abline(v=95, col="green")
 # Se añade una línea horizonta que corresponde con la mediana de FPKG.
 abline(h=median(as.matrix(log_scale)),col="blue")
 title("Boxplots of log2(FPKM)")
 ```
+Se observa que los datos tienen una distribución homogenea, solo hay cuatro muestras patológicas con distribución atípica, sin embargo, no se van a eliminar porque la distribución entre ellas es semejante, y no se desea perder información.
 
-Se guardará los datos transformados y filtrados hasta esta etapa para usarlos en el filtrado de Metiloma.
+Se guardan los datos transformados:
 
 ```{r}
 datos_mRnaseq<-as.data.frame(log_scale)
-resultdir<- file.path("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow/Datos", "datos_mRNA_norm_trans.csv")
-write.csv(log_scale, resultdir, row.names = TRUE)
 ```
 
 
@@ -397,11 +400,11 @@ write.csv(log_scale, resultdir, row.names = TRUE)
 rm(log_scale)
 ```
 
-## 5.Filtrado Biológico para integración:
+## 5.Filtrado Biológico:
 
-### 5.1.Análisis de expresión diferencial significación 0.25:
+### 5.1.Análisis de expresión diferencial significación 0.05:
 
-El filtrado biológico consistirá en seleccionar aquellos genes que tienen una expresión diferencial entre las muestras normales y las patológicas. Al ser solo un filtrado se obtendrán primero los genes con una significación menor que 0.25, y posteriormente se seleccionarán el 30% de los genes con menor p-valor ajustado. No se usará el 25% de top genes porque da un número de genes para integrar mucho menor que el usado en Mo et al, y los genes seleccionados tienen un p-valor<$10^{-11}$
+El filtrado biológico consistirá en seleccionar aquellos genes que tienen una expresión diferencial entre las muestras normales y las patológicas. Para hacer el filtrado se obtendrán primero los genes con una significación menor que 0.05, y posteriormente se seleccionarán el 30% de los genes con menor p-valor ajustado. No se usará el 25% de top genes porque da un número de genes para integrar mucho menor que el usado en Mo et al, y los genes seleccionados tienen un p-valor<$10^{-11}$
 
 Para ello se hará un modelo de regresión lineal con la función `lmFit` de `limma` para cada grupo donde las variables X serán los genes y la variable Y será binomial con valor 1 para uno de los grupos y 0 para el otro. Los parámetros para cada gen del modelo son los parámetros alfa. 
 
@@ -470,7 +473,7 @@ datos$samples[40:43,]
 
 El lib.size es el número total de FPKM por muestra y norm.factor sería el factor de normalización por el que se multiplicó cada muestra al normalizarla, en este caso se mantendrá como 1 en todas las muestras porque ya se han cargado normalizadas.
 
-La matriz de diseño se crea para clasificar las muestras a usar en el ajuste del modelo del experimento que se desea, en este caso queremos observar la diferencia de expresión entre muestras normales y tumorales de COAD. En la matriz de diseño que crearemos los niveles serán los grupos ("1" y “2”) serán las columnas, y las muestras a comparar serán las filas. Según a que nivel(grupo) pertenezca la muestra, se pondrá un 1 en la colunma del nivel al que pertenezca, y 0 en el otro nivel.
+La matriz de diseño se crea para clasificar las muestras a usar en el ajuste del modelo del experimento que se desea, en este caso queremos observar la diferencia de expresión entre muestras normales y tumorales de COAD. En la matriz de diseño que crearemos los niveles serán los grupos ("normal" y "tumoral") serán las columnas, y las muestras a comparar serán las filas. Según a que nivel(grupo) pertenezca la muestra, se pondrá un 1 en la colunma del nivel al que pertenezca, y 0 en el otro nivel.
 
 Para crear la matriz para nuestro modelo primero tenemos que crear los niveles que vamos a comparar.
 
@@ -524,23 +527,17 @@ Después se calculan los p-valores:
 efit <- eBayes(cfit)
 ```
 
-Finalmente con la función `decideTest`, indicandole el nivel de significación que queremos, que en este caso es 0.25, ya que solo deseamos filtrar los genes y necesitamos un número elevado de genes para la integración.  Esta función lo que hace es crear una tabla con posibles valores, para cada gen, de -1(genes con expresión reprimida en células tumorales), +1(genes con expresión elevada  en células tumorales) y 0(genes con misma expresión en ambas condiciones). Se otorgará cada valor comparando el p-valor obtenido con Bayes y el nivel de significación.
+Finalmente con la función `decideTest`, indicandole el nivel de significación que queremos, que en este caso se ha decidido que será 0.05.  Esta función lo que hace es crear una tabla con posibles valores, para cada gen, de -1(genes con expresión reprimida en células tumorales), +1(genes con expresión elevada  en células tumorales) y 0(genes con misma expresión en ambas condiciones).
 
 
 ```{r}
-genes_filtrado<-decideTests(efit, p.value = 0.25)
+genes_filtrado<-decideTests(efit, p.value = 0.05)
 res_filt<-as.data.frame(summary(genes_filtrado))
 res_filt
 ```
 Se observa los genes que se reduce la expresión en las muestras tumorales(Down), los que se expresan igual(NotSig), y los que han aumentado su expresión en muestras tumorales(Up).
 
-Ahora se guardan los resultados completos con sus p-valores:
-
-```{r}
-write.fit(vfit, genes_filtrado, file="genes_filtrado.txt")
-```
-
-También se guardan los genes diferencialmente expresados con sus log(FPKM) para luego elegir el 30% más significativos. 
+Se guardan los genes diferencialmente expresados con sus log2(FPKM) para luego elegir el 30% más significativos. 
 
 ```{r}
 dif_GE_filt<- which(genes_filtrado[,1]!=0)
@@ -566,109 +563,53 @@ topgenes
 Ahora con `topTable` se ordenan los genes de menor a mayor p-valor ajustado y se selecciona el número de genes con menor p-valor que le indiquemos, en este caso `r topgenes`.
 
 ```{r}
-dif_exp<-res_filt[1,3]+res_filt[3,3]
-dif_exp
-```
-
-```{r}
-topgenes<-round((dif_exp*30)/100)
-topgenes
-```
-
-```{r}
 top_genes_filt<-topTable(efit, coef="NormVSTum", sort.by = "p", number = topgenes)
 head(top_genes_filt)
+```
+
+Ahora se guarda estos resultados:
+
+```{r}
+dir.create("Datos_parte1")
+resultdir<- file.path("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow/Datos_parte1", "Top_genes_filt_parameters.csv")
+write.csv(top_genes_filt, resultdir, row.names = TRUE)
 ```
 
 A continuación, guardamos en un dataframe los Top Genes y sus correspondientes $log_2(FPKM)$:
 
 ```{r}
-selec_filt<-rownames(top_genes_filt)
-filt<-rownames(GE_filt)
-selec_pos<-vector()
-for (i in 1:length(selec_filt)){
-  for (j in 1:length(filt)){
-    if (selec_filt[i]==filt[j]){
-      selec_pos<-c(selec_pos, j)
-    }
-  }
-}
-selec_top_genes<-GE_filt[selec_pos,]
+selec<-match(rownames(top_genes_filt), rownames(GE_filt))
+selec_top_genes<-GE_filt[selec,]
 ```
 
-Se observa que son los mismos primeros genes que los obtenidos con `topTable`
+Se observa que son los mismos primeros genes que los obtenidos con `topTable`, por lo que se han seleccionado los genes correctamente.
 ```{r}
 selec_top_genes[1:6, 1:3]
 ```
 
-Por tanto, se han seleccionado correctamente.
 
 Finalmente, se guardan los Top genes diferencialmente expresados a usar en la integración con sus datos, pero solo las muestras patológicas:
 
 ```{r}
-resultdir<- file.path("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow/Datos", "Top_genes.csv")
+resultdir<- file.path("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow/Datos_parte1", "Top_genes_log2FPKG.csv")
 write.csv(selec_top_genes[,42:498], resultdir, row.names = TRUE)
 ```
 
-```{r}
-rm(GE_filt)
-rm(genes_filtrado)
-```
+Ahora se obtienen todos los genes con expresión diferencial para usarlos en la visualización de resultados. Para ello se usa `topTable` y se indica el número de genes con expresión diferencial.
 
-
-## 6.Análisis de expresión diferencial significación 0.05
-
-Expresión diferencial para la ómica de forma independiente a un nivel de significación de 0.05. 
 
 ```{r}
-genes_trans<-decideTests(efit, p.value = 0.05)
-(res<-as.data.frame(summary(genes_trans)))
-```
-
-Ahora se guardan los resultados completos con sus p-valores:
-
-```{r}
-write.fit(vfit, genes_trans, file="genes_transcriptomica.txt")
-```
-
-También se guardan los genes diferencialmente expresados con sus log(FPKM) para luego elegir el 30% más significativos. 
-
-```{r}
-dif_GE_trans<- which(genes_trans[,1]!=0)
-GE_trans<-datos_mRnaseq[dif_GE_trans,]
-```
-
-Se aelecciona los Top genes al 30%:
-
-```{r}
-dif_exp<-res[1,3]+res[3,3]
-dif_exp
-```
-
-```{r}
-topgenes<-round((dif_exp*30)/100)
-topgenes
-```
-
-```{r}
-top_genes_trans<-topTable(efit, coef="NormVSTum", sort.by = "p", number = topgenes)
+top_genes_trans<-topTable(efit, coef="NormVSTum", sort.by = "p", number = dif_exp)
 head(top_genes_trans)
 ```
 
-A continuación, se guarda en un dataframe los Top Genes y sus correspondientes $log_2(FPKM)$:
+
+A continuación, se guarda en un dataframe los Top Genes y sus correspondientes $log_2(FPKM)$ para visualizar los resultados y estudiar posibles subtipos.
 
 ```{r}
-selec_trans<-rownames(top_genes_trans)
-trans<-rownames(GE_trans)
-selec_pos<-vector()
-for (i in 1:length(selec_trans)){
-  for (j in 1:length(trans)){
-    if (selec_trans[i]==trans[j]){
-      selec_pos<-c(selec_pos, j)
-    }
-  }
-}
-selec_top_genes<-as.data.frame(GE_trans[selec_pos,])
+selec<-match(rownames(top_genes_trans), rownames(GE_filt))
+selec_top_genes<-GE_filt[selec,]
+dim(selec_top_genes)
 ```
 
 Se observa que son los mismos primeros genes que los obtenidos con `topTable`
@@ -676,8 +617,14 @@ Se observa que son los mismos primeros genes que los obtenidos con `topTable`
 selec_top_genes[1:6, 1:3]
 ```
 
+Finalmente se guardará los datos patológicos transformados tanto con o sin expresión diferencial para usarlos en el filtrado biológico de metiloma. 
 
-## 7.Visualización de resultados:
+```{r}
+resultdir<- file.path("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow/Datos_parte1", "transcriptoma_logFPKM.csv")
+write.csv(datos_mRnaseq[,42:498], resultdir, row.names = TRUE)
+```
+
+## 6.Visualización de resultados:
 
 ### PCA:
 
@@ -718,7 +665,7 @@ plot_PCA <- function (datos,labels, factor, title, scale,colores, size = 1.5, gl
   title="Expresión diferencial", scale = FALSE, size = 3,
   colores = c("purple", "orange"))
 ```
-Parece que hay tres subtipos de COAD según la expresión diferencial, de los tres hay un subtipo bastante predominante.
+Parece que hay por lo menos dos subtipos claros de COAD según la expresión diferencial.
 
 ### Heatmap:
 
@@ -727,7 +674,7 @@ Se grafica muestras frente a variables(genes). Los datos graficados son los nive
 https://online.stat.psu.edu/stat555/node/87/
 lantz
 
-Veremos primero un heatmap con 500 genes diferencialmente expresados, estos genes estarán tanto en los genes filtrados para usarlos en la integración como para los que se han obtenido con un nivel de significación menor a 0.05. Solo se observarán 100 muestras porque en realidad el observar estos resultados de diferencia de expresión entre individuos normales y con tumor no es nuestro mayor interes en el estudio.
+Veremos primero un heatmap con 500 genes diferencialmente expresados, estos genes estarán tanto en los genes filtrados para usarlos en la integración como para los que se han obtenido con un nivel de significación menor a 0.05. 
 ```{r}
 ## Seleccionamos una gama de colores:
 mypalette <- brewer.pal(11,"RdYlBu")
@@ -744,13 +691,11 @@ Se procede a realizar el heatmap:
 ```{r message=FALSE, warning=FALSE}
 selec_top_genes<-as.matrix(selec_top_genes)
 heatmap.2(selec_top_genes[1:500,],labCol=grupo, col=morecols,trace="none", 
-          main="Top 500 most variable genes across samples",
+          main="500 genes con expresión diferencial",
           ColSideColors=col_muestra,scale="row")
 ```
 
-A simple vista con el heatmap es difícil diferenciar los subtipos dentro del grupo de muestras patológicas, aún así se ve más claramente que parecen haber por lo menos tres subtipos de COAD. 
-
-
+En morado las muestras normales y en naranja las patológicas. A simple vista con el heatmap es difícil diferenciar los subtipos dentro del grupo de muestras patológicas, aún así parecen haber por lo menos tres subtipos de COAD. 
 
 
 

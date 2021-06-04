@@ -123,15 +123,15 @@ sampleTables(datos_COAD_pat)
 A continuación se guardan los datos patológicos para poder filtrar los de CNA en el Workflow_parte3_genoma y tener los datos clínicos para el análisis de supervivencia.
 
 ```{r}
-dir.create("Datos_patologicos")
-exportClass(datos_COAD_pat, dir = "Datos_patologicos", fmt = "csv", ext = ".csv")
+dir.create("Datos_patologicos_parte2")
+exportClass(datos_COAD_pat, dir = "Datos_patologicos_parte2", fmt = "csv", ext = ".csv")
 ```
 
 Y también se guardan los normales:
 
 ```{r}
-dir.create("Datos_normales")
-exportClass(datos_COAD_norm, dir = "Datos_normales", fmt = "csv", ext = ".csv")
+dir.create("Datos_normales_parte2")
+exportClass(datos_COAD_norm, dir = "Datos_normales_parte2", fmt = "csv", ext = ".csv")
 
 ```
 
