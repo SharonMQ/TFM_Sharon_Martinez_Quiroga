@@ -1,6 +1,9 @@
 ---
-title: "Workflow parte1"
+title: "Trabajo de Fin de Máster: Workflow parte 4 Genómica"
+date: "5/6/2021"
 output: pdf_document
+bibliography: Workflow4.bib
+csl: springer-vancouver-brackets.csl
 ---
 
 ## Índice:
