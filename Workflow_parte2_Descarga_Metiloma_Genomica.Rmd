@@ -1,7 +1,22 @@
 ---
-title: "Workflow parte2 Descaga de Metiloma y Genómica"
+title: "Trabajo de Fin de Máster: Workflow parte 2 Descarga Metilómica y Genómica"
+date: "5/6/2021"
 output: pdf_document
+bibliography: Workflow2.bib
+csl: springer-vancouver-brackets.csl
 ---
+
+**_Máster en Bioinformática y Bioestadística_** 
+
+**Área del trabajo:_2_**
+
+**Título del Trabajo: _Detección de biomarcadores de prognosis en Colon adenocarcinoma mediante la integración de datos ómicos con varios métodos disponibles_**
+
+**Nombre del autor/a:_Sharon Martínez Quiroga_**
+
+**Nombre del consultor/a:_Jaume Sastre Tomàs_**
+
+**Nombre del PRA:_Marc Maceira Duch_**
 
 ## 1. Preparación del entorno de trabajo:
 
