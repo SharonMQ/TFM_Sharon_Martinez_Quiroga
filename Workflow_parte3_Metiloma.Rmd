@@ -21,6 +21,8 @@ output: pdf_document
   * 6.3. _Obtención de genes diferencialmente metilados_
   * 6.4. _Obtención de probes con metilación diferencial con efecto funcional sobre transcriptoma_
 7. **Visualización de resultados**
+  * 7.1. _Datos de metilación diferencial por genes_
+  * 7.2. _Datos de metilación diferencial integrados con expresión diferencial_
   
 ## 1. Preparación del entorno de trabajo:
 
