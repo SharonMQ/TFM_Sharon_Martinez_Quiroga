@@ -902,4 +902,4 @@ heatmap.2(Met_filt_def[1:500,],labCol=grupo, col=morecols,trace="none",
           ColSideColors=col_muestra,scale="row")
 ```
 
-Con los datos integrados con expresión diferencial parece haber 5 subtipos de COAD.
+Con los datos integrados con expresión diferencial parece haber 5 subtipos de COAD. Se observa como la integración de ambas ómicas mejoró claramente los resultados.
