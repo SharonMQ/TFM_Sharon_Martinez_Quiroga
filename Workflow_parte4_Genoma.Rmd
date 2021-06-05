@@ -10,6 +10,10 @@ output: pdf_document
   * 1.2. _Carga de paquetes a utilizar._
 2. **Descarga de datos.**
 3. **Filtrado de missing values** 
+4. **Control de calidad**
+5. **Selección de muestras**
+
+
 ## 1. Preparación del entorno de trabajo:
 
 ### 1.1. Preparación del entorno:
@@ -96,7 +100,7 @@ boxplot(tabla_mv_CNA, col="red",  ylab="Porcentaje de Missing Values")
 
 De nuevo no hay missing values, por lo tanto ,los datos se pueden usar tal y como están en la integración. 
 
-## Control de Calidad
+## 4. Control de Calidad
 
 Estos datos ya se han normalizado y anotado en el nivel en el que se han descargado, aún así vamos a ver la cantidad de ruido que tienen.
 
@@ -114,6 +118,16 @@ title("Boxplots of G-scores")
 ```
 
 Se observa que a pesar de estar normalizados los datos muestran una distribución muy distinta debido a que los mismos genes no están afectados en todas las muestras, y cuando lo están no lo están de la misma forma. Por ello la normalización no es capaz de homogeneizar los datos. 
+
+## 5. Seleccion de muestras
+
+```{r}
+Metiloma_filtrado <- read_csv("Datos_parte3/Metiloma_filtrado.csv")
+match(colnames(Metiloma_filtrado), colnames(datos_CNA))
+```
+
+Vemos que tienen el mismo orden ya que en el Workflow parte2 se descargaron juntos y se seleccionó las muestras que estuvieran en ambos.
+
 
 Se va a guardar los datos, aunque no hayan cambiado los valores se ha renombrado las muestras, así que ahorraremos repetir el proceso.
 
