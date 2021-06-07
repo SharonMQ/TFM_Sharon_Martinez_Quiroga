@@ -237,14 +237,14 @@ Se probará con los valores default usados en el manual de iClusterBayes para lo
 * `thin`: muestras generadas por las iteraciones de MCMC a guardar. Se recomienda 1 para guardar los resultados de todas las iteraciones. Si indicas 3, por ejemplo, se guardará en la cadena MCMC los resultados de cada 3 iteraciones. Se elegirá 3 porque se ha decidido utilizar un gran número de iteraciones para asegurarse de que se llega a la distribución estacionaria.
 * `pp.cutoff`: probabilidad posterior de corte de gamma. A la hora de calcular BIC o el ratio de desviación se comprobará, para cada característica, que la probabilidad posterior de gamma calculada mayor que pp.cutoff, si no es así se redefinirá el valor de su beta correspondiente a 0, haciendo que esa característica(variable) ya no sea informativa. [1] 
 
-```{r eval=FALSE, message=FALSE, warning=FALSE}
+```{r message=FALSE, warning=FALSE}
 modelos<- tune.iClusterBayes(cpus=6,dt1=datos_Rnaseq,dt2=datos_Met,dt3=datos_CNA,
           type=c("gaussian","gaussian","gaussian"),K=1:6,n.burnin=16000,
           n.draw=10000,prior.gamma=c(0.5,0.5,0.5),sdev=0.05,thin=3)
 ```
 Se guarda los resultados:
 
-```{r eval=FALSE, message=FALSE, warning=FALSE}
+```{r message=FALSE, warning=FALSE}
 save(modelos, file="modelos_integracion_k.Rdata")
 ```
 
