@@ -1,0 +1,123 @@
+---
+title: "Workflow parte7 enriquecimiento"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+---
+title: "Trabajo de Fin de Máster:Workflow parte7 enriquecimiento e integracion pathways"
+output: pdf_document
+---
+**_Máster en Bioinformática y Bioestadística_** 
+
+**Área del trabajo:_2_**
+
+**Título del Trabajo: _Detección de biomarcadores de prognosis en Colon adenocarcinoma mediante la integración de datos ómicos con varios métodos disponibles_**
+
+**Nombre del autor/a:_Sharon Martínez Quiroga_**
+
+**Nombre del consultor/a:_Jaume Sastre Tomàs_**
+
+**Nombre del PRA:_Marc Maceira Duch_**
+
+
+
+```{r message=FALSE, warning=FALSE}
+library(clusterProfiler)
+library(lattice)
+library(org.Hs.eg.db)
+library(netboxr)
+library(enrichplot)
+library(RColorBrewer)
+```
+
+## 2. Carga de datos:
+
+
+```{r}
+load("~/gdac_20160128/features.Rdata")
+```
+
+
+## 3. Enriquecimiento:
+
+Se crea un vector con los driver genes de las distintas ómicas:
+
+```{r}
+driver_genes<-c(sigfeatures[[1]], sigfeatures[[2]],sigfeatures[[3]])
+length(driver_genes)
+```
+
+Ahora con unique eliminamos genes que se hayan repetido como driver gene en varias ómicas:
+
+```{r}
+driver_genes<-as.vector(unique(driver_genes))
+length(driver_genes)
+```
+
+```{r}
+keytypes(org.Hs.eg.db)
+```
+
+```{r}
+ids <- bitr(driver_genes, fromType = "SYMBOL", toType = c("ENTREZID"), OrgDb = "org.Hs.eg.db")
+head(ids)
+```
+
+
+```{r}
+enrich<- enrichGO(gene = ids$ENTREZID, OrgDb = org.Hs.eg.db, ont = "BP", 
+  pAdjustMethod = "BH", pvalueCutoff = 0.01, qvalueCutoff = 0.05, readable = TRUE)
+head(enrich)
+```
+Para poder graficar el dotplot
+
+```{r}
+dotplot(enrich, showCategory=10) 
+```
+
+## Integración de pathways:
+
+Como el paquete `pattoolsr`, que permite descargar pathways del repositorio Pathway Commons, no está disponible para la última versión de R, y la integración de pathways se está realizando en el servidor terra, donde no se ha logrado cargar datos propios, se usará el set de anotaciones de pathways disponibles en netboxR `netbox2010`.
+
+
+```{r message=FALSE, warning=FALSE}
+data(netbox2010)
+sifNetwork <- netbox2010$network
+graphReduced <- networkSimplify(sifNetwork, directed = FALSE)
+threshold <- 0.10
+results <- geneConnector(geneList = driver_genes, networkGraph = graphReduced,
+                         directed = FALSE, pValueAdj = "BH", 
+                         pValueCutoff = threshold, communityMethod = "ebc",
+                         keepIsolatedNodes = FALSE)
+```
+
+```{r}
+edges <- results$netboxOutput
+interactionType <- unique(edges[, 2])
+interactionTypeColor <- brewer.pal(length(interactionType), name = "Spectral")
+
+edgeColors <- data.frame(interactionType, interactionTypeColor,
+                         stringsAsFactors = FALSE)
+colnames(edgeColors) <- c("INTERACTION_TYPE", "COLOR")
+
+
+netboxGraphAnnotated <- annotateGraph(netboxResults = results, 
+                                      edgeColors = edgeColors, 
+                                      directed = FALSE, linker = TRUE)
+
+# Check the p-value of the selected linker
+linkerDF <- results$neighborData
+linkerDF[linkerDF$pValueFDR < threshold, ]
+```
+
+```{r}
+graph_layout <- layout_with_fr(results$netboxGraph)
+```
+
+
+```{r}
+plot(results$netboxCommunity, results$netboxGraph, layout = graph_layout)
+```

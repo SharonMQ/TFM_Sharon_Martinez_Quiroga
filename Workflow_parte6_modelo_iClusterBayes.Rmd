@@ -1,0 +1,325 @@
+---
+title: 'Trabajo de Fin de Máster: Workflow parte 6 Integración de Multiómicas'
+date: "1/5/2021"
+output:
+  html_document:
+    df_print: paged
+bibliography: Workflow6.bib
+csl: springer-vancouver-brackets.csl
+nocite: '@readr, @lattice, @gplots'
+---
+
+**_Máster en Bioinformática y Bioestadística_** 
+
+**Área del trabajo:_2_**
+
+**Título del Trabajo: _Detección de biomarcadores de prognosis en Colon adenocarcinoma mediante la integración de datos ómicos con varios métodos disponibles_**
+
+**Nombre del autor/a:_Sharon Martínez Quiroga_**
+
+**Nombre del consultor/a:_Jaume Sastre Tomàs_**
+
+**Nombre del PRA:_Marc Maceira Duch_**
+
+## Indice:
+
+1. **Preparación del entorno de trabajo.**
+  * 1.1. _Preparación del entorno._
+  * 1.2. _Carga de paquetes a utilizar._
+2. **Carga de datos**
+3. **Elección del mejor modelo**
+4. **Extracción de driver genes**
+
+
+## 1. Preparación del entorno de trabajo:
+
+### 1.1. Preparación del entorno:
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = NULL, cache = TRUE)
+```
+
+```{r}
+setwd("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow")
+```
+
+### 1.2. Carga de paquetes.
+
+```{r}
+library(readr)
+library(iClusterPlus)
+library(lattice)
+library(gplots)
+```
+
+Para hacer este workflow seguiremos el manual de iClusterPlus[@iClusterPlus; @iManual; @iclusterbayes].
+
+## 2. Carga de datos:
+
+Lo primero que se cargará será el modelo generado en la parte 5 del Workflow:
+
+```{r}
+load(
+"~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow/modelos_integracion_k.Rdata")
+```
+
+A continuación se cargan los datos usados para hacer el modelo, que serán necesarios para hacer los heatmaps.
+
+* **Transcriptómica**
+
+Se cargan los top 30% genes diferencialmente expresados:
+
+```{r message=FALSE, warning=FALSE}
+datos_Rnaseq <- as.data.frame(read_csv("Datos_parte_5/RNAseq_iClusterbayes"))
+rownames(datos_Rnaseq)<-datos_Rnaseq$X1
+datos_Rnaseq<-datos_Rnaseq[, -1]
+datos_Rnaseq[1:5, 1:2]
+```
+
+```{r}
+dim(datos_Rnaseq)
+```
+
+```{r echo=TRUE}
+datos_Rnaseq<-as.matrix(t(datos_Rnaseq))
+datos_Rnaseq[1:6,1:3]
+```
+* **Metilómica**
+
+Se cargan los datos de metilómica con metilación diferencial por gen que tengan efecto funcional sobre la expresión génica, resultantes de la integración con RNAseq.
+
+```{r message=FALSE, warning=FALSE}
+datos_Met <- as.data.frame(read_csv("Datos_parte_5/Met_iClusterbayes"))
+rownames(datos_Met)<-datos_Met$X1
+datos_Met<-datos_Met[, -1]
+datos_Met[1:5, 1:2]
+```
+
+```{r}
+dim(datos_Met)
+```
+
+```{r}
+datos_Met<-as.matrix(t(datos_Met))
+datos_Met[1:6,1:3]
+```
+
+* **Genómica**:
+
+Se cargan los datos de CNA por gen filtrados mediante la inclusión solo de aquellos CNA que estén en genes diferencialmente expresados.
+
+```{r message=FALSE, warning=FALSE}
+datos_CNA <- as.data.frame(read_csv("Datos_parte_5/CNA_iClusterbayes"))
+rownames(datos_CNA)<-datos_CNA$X1
+datos_CNA<-datos_CNA[, -1]
+datos_CNA[1:5, 1:2]
+```
+
+```{r}
+dim(datos_CNA)
+```
+
+La trasponemos para usarla luego:
+```{r}
+datos_CNA<-as.matrix(t(datos_CNA))
+datos_CNA[1:6,1:3]
+```
+
+
+## 3. Elección del mejor modelo.
+
+Para elegir el mejor modelo se estudiará BIC, deviance ratio y, debido al ruido en los datos de CNA y metilómica, también se realizará un heatmap con cada modelo.
+
+Para comparar BIC y deviance ratio hay que extraer estos parámetros de los modelos generados:
+
+```{r}
+allBIC <-vector()
+devratio <-vector()
+len = length(modelos$fit)
+for(i in 1:len){
+  allBIC = c(allBIC,modelos$fit[[i]]$BIC)
+  devratio = c(devratio,modelos$fit[[i]]$dev.ratio)
+}
+```
+
+Ahora se visualizarán los parámetros en función del valor de k de su correspondiente modelo:
+
+Con el atributo `pch` se indica que el mejor modelo se dibuje su punto en oscuro (`pch=19`).  
+```{r}
+par(mar=c(4.0,4.0,0.5,0.5),mfrow=c(1,2))
+plot(1:len, allBIC,type="b",xlab="k",ylab="BIC",pch=c(19,1,1,1,1,1))
+plot(1:len,devratio,type="b",xlab="k",ylab="Deviance ratio",pch=c(19,1,1,1,1,1))
+```
+
+El mejor modelo es aquel que tiene el BIC más bajo y el deviance ratio más alto a menor valor de k, por lo que parece que el mejor modelo es el de k=2, es decir dos subtipos. Sin embargo, el ruido afecta al calculo de BIC y deviance ratio, por lo que para comprobarlo se verán los heatmaps de cada modelo. Para ello se deberá guardar cada modelo de forma independiente:
+
+```{r}
+best.fit1<-modelos$fit[[1]]
+best.fit2<-modelos$fit[[2]]
+best.fit3<-modelos$fit[[3]]
+best.fit4<-modelos$fit[[4]]
+best.fit5<-modelos$fit[[5]]
+best.fit6<-modelos$fit[[6]]
+```
+
+A continuación se hará cada heatmap:
+
+* **Modelo k=1**
+
+```{r message=FALSE, warning=FALSE}
+par(mfrow=c(2,2))
+plotHMBayes(fit=best.fit1,
+            datasets=list(datos_Rnaseq, datos_Met, datos_CNA),    
+            type = c("gaussian", "gaussian", "gaussian"))
+```
+
+Parece un buen modelo ya que se diferencian claramente los dos subtipos.
+
+* **Modelo k=2**
+
+```{r message=FALSE, warning=FALSE}
+par(mfrow=c(2,2))
+plotHMBayes(fit=best.fit2,datasets=list(datos_Rnaseq, datos_Met, datos_CNA),             type = c("gaussian", "gaussian", "gaussian"))
+```
+
+Este modelo no parece bueno, ya que no se ve la diferencia entre los subtipos en CNA, y los subtipos en RNAseq y metiloma no parecen ser mejores que en el modelo k=1.
+
+* **Modelo k=3**
+```{r message=FALSE, warning=FALSE}
+par(mfrow=c(2,2))
+plotHMBayes(fit=best.fit3,
+            datasets=list(datos_Rnaseq, datos_Met, datos_CNA),
+            type = c("gaussian", "gaussian", "gaussian"))
+```
+
+Este modelo parece bastante bueno aunque los subtipos 2 y 3 se parecen en todas las ómicas, así que no separa las ómicas tan claramente como el modelo de k=1 con dos subtipos.
+
+
+* **Modelo k=4**
+```{r}
+par(mfrow=c(2,2))
+plotHMBayes(fit=best.fit4,
+            datasets=list(datos_Rnaseq, datos_Met, datos_CNA),   
+            type = c("gaussian", "gaussian", "gaussian"))
+```
+
+Este parece ser un buen modelo, mejor que k=1 así que probablemente se seleccione como el adecuado, ya que los subtipos se diferencian muy bien en todas las ómicas.
+
+* **Modelo k=5**
+
+```{r}
+par(mfrow=c(2,2))
+plotHMBayes(fit=best.fit5,
+            datasets=list(datos_Rnaseq, datos_Met, datos_CNA),  
+            type = c("gaussian", "gaussian", "gaussian"))
+
+```
+
+Se están generando algunos subtipos que no se diferencian mucho de otros. En RNAseq el subtipo 1 y 2 de mRNA y los subtipos 5 y 6 de CNA. Este no parece ser el mejor modelo.
+
+* **Modelo k=6**
+
+```{r}
+par(mfrow=c(2,2))
+plotHMBayes(fit=best.fit6,
+            datasets=list(datos_Rnaseq, datos_Met, datos_CNA), 
+            type = c("gaussian", "gaussian", "gaussian"))
+```
+En las tres ómicas se estan generando algunos subtipos que realmente no son tan diferentes, por lo que este modelo se descartará. Los subtipos 3 y 4 de mRNA y los 3 y 4 de metiloma y CNA son muy parecidos.
+
+
+Se va a elegir el modelo K=4 con los 5 subtipos, ya que se diferencian muy claramente en todas las ómicas. Aunque los modelos con 2 y 4 subtipos, k=1 y k=3, también son bastante buenos. Por lo tanto se ve que el ruido si afectó al valor de BIC y deviance ratio.
+
+```{r message=FALSE, warning=FALSE}
+par(mfrow=c(2,2))
+plotHMBayes(fit=best.fit1,
+            datasets=list(datos_Rnaseq, datos_Met, datos_CNA), 
+            type = c("gaussian", "gaussian", "gaussian"))
+```
+
+
+
+```{r}
+rm(best.fit1)
+rm(best.fit2)
+rm(best.fit3)
+rm(best.fit5)
+rm(best.fit6)
+```
+
+
+## 4. Extracción de Driver Genes.
+
+Para obtener los driver genes se suma para cada gen todos los parámetros beta de su modelo, en este caso solo hay un parámetro beta ya que k=1, solo se ha obtenido una variable latente. Posteriormente con los valores obtenidos para todos los genes se obtiene la distribución de los valores y se calcula el tercer cuantil, que es el que contiene el 75% de los genes. Los driver genes son los que la suma de sus valores beta es superior al tercer cuantil, ya que los valores beta indican la relación entre el gen y el vector latente generado para las tres ómicas, cuanto mayor sea el valor de los beta más afecta dicho gen al vector latente de la muestra.
+
+```{r}
+features = alist()
+features[[1]] = colnames(datos_Rnaseq)
+features[[2]] = colnames(datos_Met)
+features[[3]] = colnames(datos_CNA)
+sigfeatures=alist()
+for(i in 1:3){
+  rowsum=apply(abs(best.fit4$beta[[i]]),1, sum)
+  upper=quantile(rowsum,prob=0.75)
+  sigfeatures[[i]]=(features[[i]])[which(rowsum>upper)]
+}
+names(sigfeatures)=c("Rnaseq","Met","CNA")
+```
+
+Se obtuvieron `r length(sigfeatures[[1]])` drive genes en transcriptómica, `r length(sigfeatures[[2]])`  en metilómica y `r length(sigfeatures[[3]])` en genómica.
+
+
+## Se guardará los datos para el enriquecimiento y la integración:
+
+```{r}
+save(sigfeatures, file=paste("features.Rdata"))
+```
+
+Además se guardan en documentos:
+```{r}
+resultdir<-file.path(
+  "~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow/Datos_parte_6",
+  "features_RNA.csv")
+write.csv(as.data.frame(sigfeatures[[1]]), resultdir, row.names = TRUE)
+
+resultdir<-file.path(
+  "~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow/Datos_parte_6",
+  "features_Met.csv")
+write.csv(as.data.frame(sigfeatures[[2]]), resultdir, row.names = TRUE)
+
+resultdir<-file.path(
+  "~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow/Datos_parte_6",
+  "features_CNA.csv")
+write.csv(as.data.frame(sigfeatures[[3]]), resultdir, row.names = TRUE)
+```
+
+
+Finalmente seleccionaré para la integración de pathways aquellos genes que han sido significativos en por lo menos dos de las ómicas:
+
+```{r}
+
+driver_genes<-c(sigfeatures[[1]], sigfeatures[[2]],sigfeatures[[3]])
+length(driver_genes)
+
+```
+
+```{r}
+selec_pos<-duplicated(driver_genes)
+gene_driver_int<-driver_genes[selec_pos==TRUE]
+gene_driver_int<-unique(gene_driver_int)
+```
+
+```{r}
+resultdir<-file.path(
+  "~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow/Datos_parte_6",
+  "features_3omic.txt")
+write.table(gene_driver_int, resultdir, row.names = FALSE)
+
+
+```
+
+
+
+
+
+

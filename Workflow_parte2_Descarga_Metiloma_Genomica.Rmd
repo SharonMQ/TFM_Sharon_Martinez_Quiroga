@@ -1,0 +1,150 @@
+---
+title: 'Trabajo de Fin de Máster: Workflow parte 2 Descarga Metilómica y Genómica'
+date: "5/6/2021"
+output:
+  html_document:
+    df_print: paged
+bibliography: Workflow2.bib
+csl: springer-vancouver-brackets.csl
+---
+
+**_Máster en Bioinformática y Bioestadística_** 
+
+**Área del trabajo:_2_**
+
+**Título del Trabajo: _Detección de biomarcadores de prognosis en Colon adenocarcinoma mediante la integración de datos ómicos con varios métodos disponibles_**
+
+**Nombre del autor/a:_Sharon Martínez Quiroga_**
+
+**Nombre del consultor/a:_Jaume Sastre Tomàs_**
+
+**Nombre del PRA:_Marc Maceira Duch_**
+
+## 1. Preparación del entorno de trabajo:
+
+### 1.1. Preparación del entorno:
+
+Lo primero que hacemos es definir en el chunk el atributo cache=TRUE, para que R guarde los resultados de los chunks y solo repita la ejecución de un chunk, y de los otros chunks que se vean afectados por dicho cambio cuando se cambie el código en el chunk.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = NULL, cache = TRUE)
+```
+
+Ahora definimos nuestro directorio:
+```{r}
+setwd("~/Documentos/6to cuatrimestre/TFM/Workflows/Workflow")
+```
+
+### 1.2. Carga de paquetes a utilizar.
+
+Ahora se va a cargar los paquetes que vamos a utilizar y que explicaremos según se vayan requiriendo:[@curatedTCGAData; @TCGAutils;@MultyAssayExperiment]
+
+```{r message=FALSE, warning=FALSE}
+library(curatedTCGAData)
+library(TCGAutils)
+library(MultiAssayExperiment)
+```
+
+## 2.Descarga de datos.
+
+Se descargarán los datos de metilación con el paquete `curatedTDGAData` junto con los datos de CNA, y los datos clínicos que se van a utilizar en el análisis de supervivencia. También se cargará los datos sin filtrado biológico de RNAseq obtenidos del Workflow_parte2_Transcriptoma.Rmd, para usarlos en el filtrado biológico de metiloma.
+
+```{r}
+curatedTCGAData(
+        diseaseCode = "COAD", assays = "*", version = "1.1.38"
+    )
+```
+
+### 2.1. Descarga de datos de metilación y GISTIC:
+
+A continuación se descargan los datos de metilación.
+```{r message=FALSE, warning=FALSE}
+datos_COAD<-curatedTCGAData(diseaseCode = "COAD", 
+assays =c("GISTIC_AllByGene", "Methylation_methyl450"), version = "1.1.38",dry.run = FALSE)
+```
+
+Los datos que se van a utilizar y que se han descargado son:
+
+* GISTIC_AllByGene: Esta base de datos contiene los CNA por gen en scores. 
+* Methylation_methyl450: Contiene los Beta values para cada probe del array. 
+
+Estos datos se han descargado en un objeto MultiAssayExperiment usado por algunas herramientas de integración como por ejemplo MOFA. Estos objetos permiten almacenar varios experimentos con distinto número de filas(variables). Su estructura es la siguiente:
+
+* `ExperimentList`: Es una lista que contiene los distintos experimentos(Assays) que se han descargado. Los datos de los experimentos, guardados en la lista, están almacenados en un data frames por experimento, donde las columnas son las muestras u observaciones, y las filas las variables medidas para cada expreimento. Em esta ÈxperimentList` se encuentra:
+
+```{r}
+datos_COAD@ExperimentList
+```
+
+* `colData`: contiene los datos clínicos de cada muestra, es un data frame con una fila por muestra y una columna por variable cínica. En este caso:
+
+```{r}
+datos_COAD@colData[1:5,1:5]
+```
+
+* `sampleMap`: Contiene una tabla con los códigos de referencia de las muestras que hay por cada experimento.
+
+```{r}
+ datos_COAD@sampleMap
+```
+
+
+## 3.Selección de muestras
+
+### 3.1.Separación de muestras patológicas y normales.
+
+Como para el filtrado biológico de los datos de metiloma se van a necesitar por separado los datos normales de los patológicos, se va a separar los datos utilizando el paquete TCGAutils que permite hacerlo facilmete siempre que se tenga un objeto MultiAssayExperiment.
+
+Lo primero que se realizará será ver los tipos de muestras que hay disponibles en TCGA y su código correspondiente dentro de los códigos de referencia. Para ello se descargará el data frame "sampleTypes" que contiene esta información disponible en el paquete. 
+
+https://bioconductor.org/packages/release/bioc/vignettes/TCGAutils/inst/doc/TCGAutils.html#mergecoldata-expanding-the-coldata-of-a-multiassayexperiment
+
+```{r}
+data("sampleTypes")
+sampleTypes
+```
+
+Ahora se verá los tipos de muestras que hay en el objeto "datos_COAD" por experimento, se usará la función `sampleTables` del mismo paquete.
+
+```{r}
+sampleTables(datos_COAD)
+```
+Como se ve la mayor parte de las muestras tiene el código "01" por lo que pertenecen al Tumor Primario. También hay alguna muestra de tumor recidivante "02" y de metastasico "06", pero no se van a incluir en el análisis porque, por un lado, no hay un número de muestras significativo de estos tipos, así que incluirlas solo añadiría impresición al análisis. Y por otro lado, estos tipos de muestras no aparecen en todas las ómicas.
+
+Por un lado, se guardará los patológicos "01" y por otro los "11". 
+
+```{r message=FALSE, warning=FALSE}
+datos_COAD_pat<- TCGAsplitAssays(datos_COAD, "01")
+datos_COAD_norm<- TCGAsplitAssays(datos_COAD, "11")
+```
+
+```{r}
+sampleTables(datos_COAD_pat)
+sampleTables(datos_COAD_norm)
+```
+
+### 3.2. Selección de muestras que tengan datos para las dos ómicas a integrar.
+
+Ahora se van a seleccionar las muestras patológicas que tengan datos de CNA y de Metilación.  Existe una función `MatchedAssayExperiment` del paquete `MultiAssayExperiment` que selecciona las observaciones presentes en todos los assays del objeto. 
+
+```{r message=FALSE, warning=FALSE}
+datos_COAD_pat<-MultiAssayExperiment::MatchedAssayExperiment(datos_COAD_pat)
+sampleTables(datos_COAD_pat)
+```
+
+A continuación se guardan los datos patológicos para poder filtrar los de CNA en el Workflow_parte3_genoma y tener los datos clínicos para el análisis de supervivencia.
+
+```{r}
+dir.create("Datos_patologicos_parte2")
+exportClass(datos_COAD_pat, dir = "Datos_patologicos_parte2", fmt = "csv", ext = ".csv")
+```
+
+Y también se guardan los normales:
+
+```{r}
+dir.create("Datos_normales_parte2")
+exportClass(datos_COAD_norm, dir = "Datos_normales_parte2", fmt = "csv", ext = ".csv")
+
+```
+
+La función `exportClass()` consume mucha RAM del enviroment, por eso se ha decidido hacer una parte del workflow solo para descargar estos datos.
